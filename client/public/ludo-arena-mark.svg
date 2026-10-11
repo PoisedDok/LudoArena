@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="24" y1="16" x2="130" y2="144" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#170F2E"/>
+      <stop offset=".52" stop-color="#0F152E"/>
+      <stop offset="1" stop-color="#0A0F1A"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="32" y1="24" x2="128" y2="136" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C52FF"/>
+      <stop offset=".5" stop-color="#42D6FF"/>
+      <stop offset="1" stop-color="#9BF7D8"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="33" y1="34" x2="104" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0B8FF"/>
+      <stop offset="1" stop-color="#7C52FF"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="56" y1="38" x2="124" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7EE7FF"/>
+      <stop offset="1" stop-color="#2BBCEB"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="30" y1="98" x2="108" y2="144" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE8A3"/>
+      <stop offset="1" stop-color="#FFB84D"/>
+    </linearGradient>
+    <linearGradient id="rose" x1="44" y1="64" x2="128" y2="134" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF9DC8"/>
+      <stop offset="1" stop-color="#FF5F96"/>
+    </linearGradient>
+    <filter id="glow" x="8" y="8" width="144" height="144" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <style>
+      .halo { animation: halo 4.5s ease-in-out infinite; transform-origin: 80px 80px; }
+      .orbit { animation: orbit 18s linear infinite; transform-origin: 80px 80px; }
+      .pieces { animation: float 6s ease-in-out infinite alternate; transform-origin: 80px 80px; }
+      .shine { animation: shine 3s ease-in-out infinite; }
+      @keyframes halo { 0%,100% { opacity: .45; transform: scale(.94); } 50% { opacity: .85; transform: scale(1.04); } }
+      @keyframes orbit { to { transform: rotate(360deg); } }
+      @keyframes float { to { transform: translateY(-4px); } }
+      @keyframes shine { 0%,100% { opacity: .35; } 50% { opacity: .9; } }
+      @media (prefers-reduced-motion: reduce) {
+        .halo, .orbit, .pieces, .shine { animation: none; }
+      }
+    </style>
+  </defs>
+  <rect x="10" y="10" width="140" height="140" rx="38" fill="url(#bg)"/>
+  <circle class="halo" cx="80" cy="80" r="58" fill="url(#ring)" opacity=".2"/>
+  <circle class="orbit" cx="80" cy="80" r="58" stroke="url(#ring)" stroke-width="2" opacity=".8"/>
+  <g class="pieces">
+    <path d="M80 30 118 58 80 130 42 58 80 30Z" fill="url(#violet)" opacity=".2" stroke="#fff" stroke-opacity=".38" stroke-width="1.5"/>
+    <path d="M80 42 103 61 80 112 57 61 80 42Z" fill="url(#violet)"/>
+    <path d="M126 80 94 102 80 130V80h46Z" fill="url(#cyan)"/>
+    <path d="M80 80H34l46 50V80Z" fill="url(#gold)"/>
+    <path d="M80 80V30L42 58l38 22Z" fill="url(#rose)"/>
+    <circle cx="80" cy="80" r="13" fill="#F7F5FF"/>
+    <circle cx="80" cy="80" r="7" fill="#111827"/>
+  </g>
+  <g filter="url(#glow)" opacity=".84">
+    <circle cx="80" cy="39" r="15" fill="url(#violet)"/>
+    <circle cx="121" cy="80" r="15" fill="url(#cyan)"/>
+    <circle cx="80" cy="121" r="15" fill="url(#gold)"/>
+    <circle cx="39" cy="80" r="15" fill="url(#rose)"/>
+  </g>
+  <g class="shine" fill="none" stroke="#fff">
+    <path d="m80 32 23 23-23 25-23-25 23-23Z" stroke-opacity=".82" stroke-width="1.4"/>
+    <path d="m80 80 24 25-24 23-24-23 24-25Z" stroke-opacity=".5" stroke-width="1.2"/>
+  </g>
+  <circle cx="128" cy="42" r="3.5" fill="#D7F7FF"/>
+  <circle cx="40" cy="118" r="4" fill="#FFD0E8"/>
+  <circle cx="114" cy="116" r="3" fill="#D9E8FF"/>
+</svg>
