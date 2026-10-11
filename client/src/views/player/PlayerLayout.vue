@@ -51,6 +51,11 @@ async function logout() {
     </header>
 
     <main class="flex-1 min-w-0 main-content">
+      <div v-if="auth.user?.deletedAt" class="mx-auto max-w-4xl px-4 pt-4">
+        <p class="card border-amber-500/30 text-sm text-amber-300" role="status">
+          This account is deleted. You can sign in to view your games and history, but cannot start or join games.
+        </p>
+      </div>
       <RouterView />
     </main>
 
@@ -69,7 +74,7 @@ async function logout() {
       </RouterLink>
     </nav>
 
-    <PingNotification v-if="pings.incomingPing && !pings.incomingPing.isBroadcast" />
-    <GameReadyModal v-if="pings.pendingGame" />
+    <PingNotification v-if="!auth.user?.deletedAt && pings.incomingPing && !pings.incomingPing.isBroadcast" />
+    <GameReadyModal v-if="!auth.user?.deletedAt && pings.pendingGame" />
   </div>
 </template>

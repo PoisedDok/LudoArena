@@ -1,8 +1,9 @@
 import type { Response } from 'express'
-import prisma from './prisma'
+import prisma, { lockUsers } from './prisma'
 import { signToken, verifyToken } from './jwt'
 import { getEnv } from '../config/env'
 import { AUTH } from '../config/limits'
+import { unauthorized } from './errors'
 
 export const COOKIE_NAME = 'token'
 
@@ -40,11 +41,17 @@ export async function issueSession(
   remember: boolean,
 ): Promise<void> {
   const ttl = remember ? AUTH.rememberTtlSeconds : AUTH.sessionTtlSeconds
-  const session = await prisma.session.create({
-    data: { userId: user.id, expiresAt: new Date(Date.now() + ttl * 1000) },
-    select: { id: true },
+  const { session, current } = await prisma.$transaction(async (tx) => {
+    await lockUsers(tx, [user.id])
+    const current = await tx.user.findUnique({ where: { id: user.id }, select: { role: true, tokenVersion: true } })
+    if (!current || current.tokenVersion !== user.tokenVersion) throw unauthorized('Invalid credentials')
+    const session = await tx.session.create({
+      data: { userId: user.id, expiresAt: new Date(Date.now() + ttl * 1000) },
+      select: { id: true },
+    })
+    return { session, current }
   })
-  const token = signToken({ userId: user.id, role: user.role, tv: user.tokenVersion, sid: session.id }, ttl)
+  const token = signToken({ userId: user.id, role: current.role, tv: current.tokenVersion, sid: session.id }, ttl)
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'lax',

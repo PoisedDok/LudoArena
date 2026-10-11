@@ -83,6 +83,27 @@ describe('admin stats', () => {
     expect(after.totals.commission).toBeCloseTo(before.totals.commission + 2.5)
   })
 
+  it('removes archived players from active counts without hiding their preserved balances', async () => {
+    const player = await createUser({ balanceCents: 1_234, isActive: true })
+    const other = await createUser()
+    const game = await createGame({ gameType: 'ONE_V_ONE', stakeCents: 1_000, players: [player, other] })
+    await prisma.game.update({
+      where: { id: game.id },
+      data: { status: 'COMPLETED', winnerId: player.id, finishedAt: new Date() },
+    })
+    const admin = await login(app, await createUser({ role: 'ADMIN' }))
+    const before = (await admin.get('/api/admin/stats?period=all')).body.data.live
+    const totalsBefore = (await admin.get('/api/admin/stats?period=all')).body.data.totals
+    expect(before).toMatchObject({ activePlayers: 1, totalPlayerBalance: 12.34 })
+    expect(totalsBefore.games).toBe(1)
+
+    expect((await admin.delete(`/api/players/${player.id}`)).status).toBe(200)
+    const after = (await admin.get('/api/admin/stats?period=all')).body.data.live
+    const totalsAfter = (await admin.get('/api/admin/stats?period=all')).body.data.totals
+    expect(after).toMatchObject({ activePlayers: 0, totalPlayerBalance: 12.34 })
+    expect(totalsAfter).toEqual(totalsBefore)
+  })
+
   it('games and transactions lists accept the same period', async () => {
     await seedGames()
     const admin = await login(app, await createUser({ role: 'ADMIN' }))

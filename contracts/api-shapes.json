@@ -4,12 +4,18 @@
     "UserBrief": { "id": "string", "username": "string" },
     "SessionUser": {
       "id": "string", "username": "string", "phone": "string|null", "role": "string",
-      "balance": "number", "isActive": "boolean", "creditLimit": "number", "spendLimit": "number"
+      "balance": "number", "isActive": "boolean", "creditLimit": "number", "spendLimit": "number",
+      "deletedAt": "string|null"
     },
     "PublicPlayer": { "id": "string", "username": "string", "isActive": "boolean", "role": "string", "createdAt": "string" },
     "FullPlayer": {
       "id": "string", "username": "string", "phone": "string|null", "role": "string", "balance": "number",
       "creditLimit": "number", "spendLimit": "number", "isActive": "boolean", "createdAt": "string", "updatedAt": "string"
+    },
+    "DeletedPlayer": {
+      "id": "string", "username": "string", "phone": "string|null", "role": "string", "balance": "number",
+      "creditLimit": "number", "spendLimit": "number", "isActive": "boolean", "createdAt": "string",
+      "updatedAt": "string", "deletedAt": "string"
     },
     "GamePlayer": {
       "userId": "string", "team": "number|null", "isDone": "boolean",
@@ -74,6 +80,9 @@
     "auth.me": "@SessionUser",
     "players.list.public": { "$each": "@PublicPlayer" },
     "players.list.admin": { "$each": "@FullPlayer" },
+    "players.deleted": { "$each": "@DeletedPlayer" },
+    "players.restore": { "ok": "boolean" },
+    "players.permanentCleanup": { "ok": "boolean" },
     "players.detail.full": "@FullPlayer",
     "players.transactions": { "$each": "@OwnTransaction" },
     "pings.list": { "$each": "@Ping" },
@@ -108,7 +117,10 @@
     "game:settling": { "gameId": "string", "winnerId": "string", "secondPlaceId": "string|null", "settlesAt": "number" },
     "game:completed": { "gameId": "string", "winnerId": "string|null", "secondPlaceId": "string|null", "voided": "boolean", "balance": "number|undefined" },
     "balance:updated": { "balance": "number" },
-    "player:status": { "userId": "string", "isActive": "boolean", "username": "string" },
+    "player:status": {
+      "userId": "string", "isActive": "boolean", "username?": "string", "deleted?": "boolean|undefined",
+      "deletedAt?": "string|undefined", "restored?": "boolean|undefined"
+    },
     "deposit:new": { "deposit": "@Deposit" },
     "deposit:approved": { "depositId": "string", "amount": "number", "newBalance": "number", "adminNote": "string|null" }
   }

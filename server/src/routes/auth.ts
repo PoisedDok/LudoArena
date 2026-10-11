@@ -21,6 +21,7 @@ const sessionView = (user: {
   role: string
   balance: { toNumber(): number }
   isActive?: boolean
+  deletedAt?: Date | null
   creditLimit?: { toNumber(): number }
   spendLimit?: { toNumber(): number }
 }) => ({
@@ -30,6 +31,7 @@ const sessionView = (user: {
   role: user.role,
   balance: user.balance.toNumber(),
   isActive: user.isActive,
+  deletedAt: user.deletedAt?.toISOString() ?? null,
   creditLimit: user.creditLimit?.toNumber(),
   spendLimit: user.spendLimit?.toNumber(),
 })

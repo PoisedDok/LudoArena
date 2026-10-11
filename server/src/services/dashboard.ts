@@ -130,7 +130,7 @@ export async function dashboardData(period: Period, compare: boolean): Promise<D
 /** Figures that are about now, not about the period; cheap counts, never cached. */
 export async function liveFigures() {
   const [activePlayers, disputedGames, pendingDeposits, balances, earliest] = await Promise.all([
-    prisma.user.count({ where: { isActive: true, role: 'PLAYER' } }),
+    prisma.user.count({ where: { isActive: true, role: 'PLAYER', deletedAt: null } }),
     prisma.game.count({ where: { status: GameStatus.DISPUTED } }),
     prisma.depositRequest.count({ where: { status: 'PENDING' } }),
     prisma.user.aggregate({ where: { role: 'PLAYER' }, _sum: { balance: true } }),

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import prisma from '../lib/prisma'
-import { requireAuth, AuthRequest } from '../middleware/auth'
+import { requireAuth, requirePlayableAccount, AuthRequest } from '../middleware/auth'
 import { idempotent } from '../middleware/idempotency'
 import { GameType, PingStatus } from '../../generated/prisma'
 import { cancelPing, createPing, publishResponse, respondToPing } from '../services/pings'
@@ -18,12 +18,17 @@ export function pingsRouter(): Router {
   // GET /api/pings — own pings (sent/received) plus all open broadcasts
   router.get('/', requireAuth, async (req: AuthRequest, res) => {
     const userId = req.user!.userId
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { deletedAt: true } })
+    if (user.deletedAt) {
+      res.json({ data: [] })
+      return
+    }
     const pings = await prisma.ping.findMany({
       where: {
         OR: [
           { fromUserId: userId },
           { recipients: { some: { userId } } },
-          { isBroadcast: true, status: PingStatus.PENDING, fromUserId: { not: userId }, expiresAt: { gt: new Date() } },
+          { isBroadcast: true, status: PingStatus.PENDING, fromUserId: { not: userId }, fromUser: { deletedAt: null }, expiresAt: { gt: new Date() } },
         ],
       },
       include: {
@@ -44,7 +49,7 @@ export function pingsRouter(): Router {
   })
 
   // POST /api/pings — direct (Solo only) or broadcast
-  router.post('/', requireAuth, idempotent, async (req: AuthRequest, res) => {
+  router.post('/', requireAuth, requirePlayableAccount, idempotent, async (req: AuthRequest, res) => {
     const input = body(req)
     const gameType = oneOf(input.gameType, Object.values(GameType), 'gameType')
     const stakeCents = amountCents(input.stake, 'stake', { min: 1, max: MONEY.maxAmountCents })
@@ -62,13 +67,13 @@ export function pingsRouter(): Router {
   })
 
   // DELETE /api/pings/:id — the sender cancels a pending ping
-  router.delete('/:id', requireAuth, async (req: AuthRequest<IdParams>, res) => {
+  router.delete('/:id', requireAuth, requirePlayableAccount, async (req: AuthRequest<IdParams>, res) => {
     await cancelPing(req.params.id, req.user!.userId)
     res.json({ data: { ok: true } })
   })
 
   // PATCH /api/pings/:id/respond
-  router.patch('/:id/respond', requireAuth, async (req: AuthRequest<IdParams>, res) => {
+  router.patch('/:id/respond', requireAuth, requirePlayableAccount, async (req: AuthRequest<IdParams>, res) => {
     const input = body(req)
     const response = oneOf(input.response, ['ACCEPTED', 'DECLINED'] as const, 'response')
     const team = typeof input.team === 'number' && Number.isInteger(input.team) ? input.team : null

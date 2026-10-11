@@ -14,14 +14,17 @@ interface Player {
   id: string; username: string; phone?: string | null; role: string
   balance: number; creditLimit: number; spendLimit: number; isActive: boolean
 }
+interface DeletedPlayer extends Player { deletedAt: string }
 interface Tx {
   id: string; type: string; amount: number; description: string | null; createdAt: string
   screenshotFilename?: string | null; balanceAfter: number
 }
 
 const players = ref<Player[]>([])
+const deletedPlayers = ref<DeletedPlayer[]>([])
 const loading = ref(true)
 const loadError = ref('')
+const deletedLoadError = ref('')
 const search = ref('')
 
 async function load() {
@@ -36,7 +39,17 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+
+async function loadDeleted() {
+  deletedLoadError.value = ''
+  try {
+    const { data } = await api.get('/players/deleted')
+    deletedPlayers.value = expectShape<DeletedPlayer[]>('players.deleted', data.data)
+  } catch (e) {
+    deletedLoadError.value = errorMessage(e, 'Could not load deleted players.')
+  }
+}
+onMounted(() => { void load(); void loadDeleted() })
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -45,7 +58,7 @@ const filtered = computed(() => {
 })
 
 // ---- dialogs ----
-type Dialog = 'add' | 'edit' | 'balance' | 'delete' | 'ledger' | null
+type Dialog = 'add' | 'edit' | 'balance' | 'delete' | 'ledger' | 'purge' | null
 const dialog = ref<Dialog>(null)
 const target = ref<Player | null>(null)
 const formError = ref('')
@@ -158,9 +171,33 @@ async function submitDelete() {
   try {
     await api.delete(`/players/${target.value.id}`)
     close()
-    await load()
+    await Promise.all([load(), loadDeleted()])
   } catch (e) {
     formError.value = errorMessage(e, 'Could not delete the player.')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function restorePlayer(player: DeletedPlayer) {
+  try {
+    await api.post(`/players/${player.id}/restore`)
+    await Promise.all([load(), loadDeleted()])
+  } catch (e) {
+    deletedLoadError.value = errorMessage(e, 'Could not restore the player.')
+  }
+}
+
+async function permanentlyCleanPlayer() {
+  if (busy.value || !target.value) return
+  busy.value = true
+  formError.value = ''
+  try {
+    await api.delete(`/players/${target.value.id}/permanent-cleanup`)
+    close()
+    await loadDeleted()
+  } catch (e) {
+    formError.value = errorMessage(e, 'Could not permanently clean up the player.')
   } finally {
     busy.value = false
   }
@@ -269,6 +306,24 @@ async function loadLedger(player: Player) {
         </table>
       </div>
     </StateBlock>
+
+    <details class="card">
+      <summary class="cursor-pointer font-medium">Deleted players ({{ deletedPlayers.length }})</summary>
+      <p v-if="deletedLoadError" class="field-error mt-3" role="alert">{{ deletedLoadError }}</p>
+      <p v-else-if="!deletedPlayers.length" class="text-sm text-text-muted mt-3">No deleted players.</p>
+      <ul v-else class="divide-y divide-border mt-3">
+        <li v-for="p in deletedPlayers" :key="p.id" class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="font-medium truncate">{{ p.username }}</div>
+            <div class="text-xs text-text-muted">Deleted {{ formatDateTime(p.deletedAt) }} · Balance {{ formatPlain(p.balance) }}</div>
+          </div>
+          <div class="flex gap-2 flex-shrink-0">
+            <button type="button" class="btn-ghost btn-sm" @click="restorePlayer(p)">Restore</button>
+            <button type="button" class="btn-ghost btn-sm text-danger" @click="open('purge', p)">Permanent cleanup</button>
+          </div>
+        </li>
+      </ul>
+    </details>
   </div>
 
   <Lightbox v-if="lightbox" :src="lightbox" @close="lightbox = null" />
@@ -372,8 +427,9 @@ async function loadLedger(player: Player) {
   <Modal v-if="dialog === 'delete' && target" title="Delete player" size="sm" @close="close">
     <div class="space-y-3">
       <p class="text-sm text-text-muted">
-        Delete <span class="font-medium text-text-primary">{{ target.username }}</span>? This only works for a player with no games and no ledger entries.
-        To lock a player out, change their password instead.
+        Move <span class="font-medium text-text-primary">{{ target.username }}</span> to the deleted players list?
+        They will no longer appear to other players or be able to join or start games, but can still sign in to view their game and account history.
+        Deletion is blocked while they have a game active or awaiting completion. Their financial and game history is preserved.
       </p>
       <p v-if="formError" class="field-error" role="alert">{{ formError }}</p>
     </div>
@@ -381,6 +437,24 @@ async function loadLedger(player: Player) {
       <div class="flex gap-3">
         <button type="button" class="btn-ghost flex-1" @click="close">Cancel</button>
         <button type="button" class="btn-danger flex-1" :disabled="busy" @click="submitDelete">{{ busy ? 'Deleting…' : 'Delete' }}</button>
+      </div>
+    </template>
+  </Modal>
+
+  <Modal v-if="dialog === 'purge' && target" title="Permanently clean up player" :subtitle="target.username" size="sm" @close="close">
+    <div class="space-y-3">
+      <p class="text-sm text-text-muted">
+        Permanently remove this account's phone number, login credentials, sessions, and idempotency data?
+        This cannot be undone. Historical games, ledger entries, deposits, and the username retained in those records will remain.
+      </p>
+      <p v-if="formError" class="field-error" role="alert">{{ formError }}</p>
+    </div>
+    <template #footer>
+      <div class="flex gap-3">
+        <button type="button" class="btn-ghost flex-1" @click="close">Cancel</button>
+        <button type="button" class="btn-danger flex-1" :disabled="busy" @click="permanentlyCleanPlayer">
+          {{ busy ? 'Cleaning up…' : 'Permanently clean up' }}
+        </button>
       </div>
     </template>
   </Modal>

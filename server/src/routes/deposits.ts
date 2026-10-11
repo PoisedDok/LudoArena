@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import prisma, { lockUsers } from '../lib/prisma'
-import { requireAuth, requireAdmin, AuthRequest } from '../middleware/auth'
+import { requireAuth, requireAdmin, requirePlayableAccount, AuthRequest } from '../middleware/auth'
 import { idempotent } from '../middleware/idempotency'
 import { imageUpload, removeStoredImage, storeImage } from '../middleware/upload'
 import { uploadLimiter } from '../middleware/rateLimit'
@@ -11,7 +11,7 @@ import { DepositStatus, TransactionType } from '../../generated/prisma'
 import { MONEY } from '../config/limits'
 import { amountCents, body, oneOf, optionalString } from '../lib/validate'
 import { centsToDecimal, decimalToCents } from '../lib/money'
-import { conflict, notFound } from '../lib/errors'
+import { conflict, forbidden, notFound } from '../lib/errors'
 
 type IdParams = { id: string }
 
@@ -21,14 +21,20 @@ export function depositsRouter(): Router {
   const router = Router()
 
   // POST /api/deposits — a player submits a payment proof
-  router.post('/', requireAuth, idempotent, uploadLimiter(), imageUpload('screenshot'), async (req: AuthRequest, res) => {
+  router.post('/', requireAuth, requirePlayableAccount, idempotent, uploadLimiter(), imageUpload('screenshot'), async (req: AuthRequest, res) => {
     const userId = req.user!.userId
     const cents = amountCents(body(req).amount, 'amount', { min: 1, max: MONEY.maxAmountCents })
     const stored = await storeImage(req.file)
     try {
-      const deposit = await prisma.depositRequest.create({
-        data: { userId, amount: centsToDecimal(cents), screenshotFilename: stored.filename, screenshotHash: stored.sha256 },
-        include: { user: { select: { id: true, username: true } } },
+      const deposit = await prisma.$transaction(async (tx) => {
+        await lockUsers(tx, [userId])
+        const user = await tx.user.findUnique({ where: { id: userId }, select: { deletedAt: true } })
+        if (!user) throw notFound('Player not found')
+        if (user.deletedAt) throw forbidden('This account is deleted and cannot submit deposits')
+        return tx.depositRequest.create({
+          data: { userId, amount: centsToDecimal(cents), screenshotFilename: stored.filename, screenshotHash: stored.sha256 },
+          include: { user: { select: { id: true, username: true } } },
+        })
       })
       emitToAdmin('deposit:new', { deposit })
       res.status(201).json({ data: deposit })

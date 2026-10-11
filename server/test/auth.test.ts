@@ -154,7 +154,7 @@ describe('sessions', () => {
     expect(res.status).toBe(403)
   })
 
-  it('a password reset by the admin ends the old session; a deleted account is refused', async () => {
+  it('a password reset ends old sessions; archiving preserves login and the current session', async () => {
     const { app } = createApp()
     const admin = await createUser({ role: 'ADMIN' })
     const player = await createUser()
@@ -171,7 +171,8 @@ describe('sessions', () => {
     const doomed = await createUser()
     const doomedAgent = await login(app, doomed)
     expect((await adminAgent.delete(`/api/players/${doomed.id}`)).status).toBe(200)
-    expect((await doomedAgent.get('/api/auth/me')).status).toBe(401)
+    expect((await doomedAgent.get('/api/auth/me')).body.data.deletedAt).toBeTruthy()
+    expect(await prisma.session.count({ where: { userId: doomed.id } })).toBe(1)
   })
 
   /** The raw token of a fresh login, so a test can replay it exactly as a thief would (no cookie jar). */
@@ -194,7 +195,7 @@ describe('sessions', () => {
     expect(await prisma.session.count({ where: { userId: user.id } })).toBe(1)
   })
 
-  it('a copied token also stops working after the admin changes the password and after the player is deleted', async () => {
+  it('a copied token stops working after password reset and permanent cleanup, not soft archive', async () => {
     const { app } = createApp()
     const admin = await createUser({ role: 'ADMIN' })
     const adminAgent = await login(app, admin)
@@ -207,6 +208,8 @@ describe('sessions', () => {
     const doomed = await createUser()
     const doomedToken = await rawToken(app, doomed)
     expect((await adminAgent.delete(`/api/players/${doomed.id}`)).status).toBe(200)
+    expect((await replay(app, doomedToken)).status).toBe(200)
+    expect((await adminAgent.delete(`/api/players/${doomed.id}/permanent-cleanup`)).status).toBe(200)
     expect((await replay(app, doomedToken)).status).toBe(401)
     expect(await prisma.session.count({ where: { userId: doomed.id } })).toBe(0)
   })

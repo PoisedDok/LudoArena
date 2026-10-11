@@ -4,6 +4,7 @@ import api, { setUnauthorizedHandler } from '../lib/api'
 import { bindOnce, connectSocket, disconnectSocket, onResync } from '../lib/socket'
 import { expectShape } from '../lib/contract'
 import { usePlayersStore } from './players'
+import { usePingsStore } from './pings'
 
 export interface User {
   id: string
@@ -14,6 +15,7 @@ export interface User {
   isActive: boolean
   creditLimit: number
   spendLimit: number
+  deletedAt: string | null
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -30,9 +32,24 @@ export const useAuthStore = defineStore('auth', () => {
     const socket = connectSocket()
     bindOnce('auth', (s) => {
       const players = usePlayersStore()
-      s.on('player:status', ({ userId, isActive }: { userId: string; isActive: boolean }) => {
-        players.updateStatus(userId, isActive)
-        if (user.value?.id === userId) user.value = { ...user.value, isActive }
+      const pings = usePingsStore()
+      s.on('player:status', ({ userId, isActive, deleted, deletedAt, restored }: {
+        userId: string
+        isActive: boolean
+        deleted?: boolean
+        deletedAt?: string
+        restored?: boolean
+      }) => {
+        players.updateStatus(userId, isActive, deleted, restored)
+        if (user.value?.id === userId) {
+          user.value = {
+            ...user.value,
+            isActive,
+            deletedAt: deleted ? deletedAt ?? user.value.deletedAt : restored ? null : user.value.deletedAt,
+          }
+          if (deleted) pings.clearActivity()
+          else if (restored) void pings.fetchPings()
+        }
       })
       // The server pushes the receiver's own balance after settlements, adjustments and deposits.
       s.on('balance:updated', ({ balance }: { balance: number }) => {

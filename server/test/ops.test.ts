@@ -150,6 +150,7 @@ describe('migrate script', () => {
         '0002_exact_money_and_settlement_state',
         '0003_sessions',
         '0004_commission_settings',
+        '0005_player_archive',
       ])
       const user = await client.query(`SELECT "balance"::text AS balance, "tokenVersion" FROM "User" WHERE "id" = 'legacy1'`)
       expect(user.rows[0]).toEqual({ balance: '12.50', tokenVersion: 0 })

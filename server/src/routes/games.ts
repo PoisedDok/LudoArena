@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import prisma from '../lib/prisma'
-import { requireAuth, AuthRequest } from '../middleware/auth'
+import { requireAuth, requirePlayableAccount, AuthRequest } from '../middleware/auth'
 import { imageUpload, removeStoredImage, storeImage } from '../middleware/upload'
 import { uploadLimiter } from '../middleware/rateLimit'
 import { addScreenshot, castVote, gameInclude, markDone, publishVote, retractVote, setRoomCode } from '../services/games'
@@ -39,7 +39,7 @@ export function gamesRouter(): Router {
   })
 
   // PATCH /api/games/:id/roomcode
-  router.patch('/:id/roomcode', requireAuth, async (req: AuthRequest<IdParams>, res) => {
+  router.patch('/:id/roomcode', requireAuth, requirePlayableAccount, async (req: AuthRequest<IdParams>, res) => {
     const code = requiredString(body(req).ludoRoomCode, 'ludoRoomCode', 1, GAME.roomCodeMaxLength)
     if (!ROOM_CODE.test(code)) throw badRequest('ludoRoomCode may contain letters, digits, space, dash and underscore only')
     const game = await setRoomCode(req.params.id, req.user!.userId, code)
@@ -47,13 +47,13 @@ export function gamesRouter(): Router {
   })
 
   // PATCH /api/games/:id/done
-  router.patch('/:id/done', requireAuth, async (req: AuthRequest<IdParams>, res) => {
+  router.patch('/:id/done', requireAuth, requirePlayableAccount, async (req: AuthRequest<IdParams>, res) => {
     await markDone(req.params.id, req.user!.userId)
     res.json({ data: { status: 'pending_completion' } })
   })
 
   // POST /api/games/:id/screenshots
-  router.post('/:id/screenshots', requireAuth, uploadLimiter(), imageUpload('screenshot'), async (req: AuthRequest<IdParams>, res) => {
+  router.post('/:id/screenshots', requireAuth, requirePlayableAccount, uploadLimiter(), imageUpload('screenshot'), async (req: AuthRequest<IdParams>, res) => {
     const stored = await storeImage(req.file)
     try {
       const screenshot = await addScreenshot(req.params.id, req.user!.userId, stored.filename)
@@ -65,7 +65,7 @@ export function gamesRouter(): Router {
   })
 
   // POST /api/games/:id/confirm — cast the vote; the result settles after the undo window
-  router.post('/:id/confirm', requireAuth, async (req: AuthRequest<IdParams>, res) => {
+  router.post('/:id/confirm', requireAuth, requirePlayableAccount, async (req: AuthRequest<IdParams>, res) => {
     const input = body(req)
     const winnerId = requiredString(input.winnerId, 'winnerId', 1, 64)
     const second = typeof input.secondPlaceId === 'string' && input.secondPlaceId ? input.secondPlaceId.slice(0, 64) : null
@@ -81,7 +81,7 @@ export function gamesRouter(): Router {
   })
 
   // DELETE /api/games/:id/confirm — retract own vote while the game is not paid out
-  router.delete('/:id/confirm', requireAuth, async (req: AuthRequest<IdParams>, res) => {
+  router.delete('/:id/confirm', requireAuth, requirePlayableAccount, async (req: AuthRequest<IdParams>, res) => {
     const playerIds = await retractVote(req.params.id, req.user!.userId)
     emitToUsers(playerIds, 'game:vote_retracted', { gameId: req.params.id, byUserId: req.user!.userId })
     res.json({ data: { status: 'retracted' } })

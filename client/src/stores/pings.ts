@@ -148,10 +148,16 @@ export const usePingsStore = defineStore('pings', () => {
 
   const clearIncoming = () => { incomingPing.value = null }
   const clearPendingGame = () => { pendingGame.value = null }
+  const clearActivity = () => {
+    pings.value = []
+    liveBroadcasts.value = []
+    incomingPing.value = null
+    pendingGame.value = null
+  }
 
   return {
     pings, incomingPing, pendingGame, liveBroadcasts, loading, error,
     fetchPings, sendPing, respondToPing, cancelPing, fetchAdminBroadcasts,
-    bindSocketEvents, bindAdminSocketEvents, clearIncoming, clearPendingGame,
+    bindSocketEvents, bindAdminSocketEvents, clearIncoming, clearPendingGame, clearActivity,
   }
 })

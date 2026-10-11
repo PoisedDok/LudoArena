@@ -122,7 +122,7 @@ const retryAll = () => void Promise.all([playersStore.fetchPlayers(), pingsStore
             <span class="font-medium text-sm">{{ auth.user?.isActive ? 'Active' : 'Offline' }}</span>
           </div>
         </div>
-        <button type="button" class="btn-ghost text-sm flex-shrink-0" :class="auth.user?.isActive ? 'border-active/30 text-active' : ''" :disabled="statusBusy" :aria-pressed="!!auth.user?.isActive" @click="toggleActive">
+        <button v-if="!auth.user?.deletedAt" type="button" class="btn-ghost text-sm flex-shrink-0" :class="auth.user?.isActive ? 'border-active/30 text-active' : ''" :disabled="statusBusy" :aria-pressed="!!auth.user?.isActive" @click="toggleActive">
           {{ auth.user?.isActive ? 'Go offline' : "I'm active" }}
         </button>
       </section>
@@ -136,7 +136,7 @@ const retryAll = () => void Promise.all([playersStore.fetchPlayers(), pingsStore
               Credit limit {{ formatPlain(auth.user?.creditLimit) }} · Max stake {{ formatPlain(auth.user?.spendLimit) }}
             </div>
           </div>
-          <button type="button" class="btn-ghost btn-sm border-active/30 text-active hover:bg-active/10 flex-shrink-0" @click="showDepositModal = true">Add funds</button>
+          <button v-if="!auth.user?.deletedAt" type="button" class="btn-ghost btn-sm border-active/30 text-active hover:bg-active/10 flex-shrink-0" @click="showDepositModal = true">Add funds</button>
         </div>
         <ul v-if="depositsStore.myDeposits.length" class="border-t border-border pt-2 space-y-1">
           <li v-for="d in depositsStore.myDeposits.slice(0, 2)" :key="d.id" class="flex items-center justify-between gap-3 text-xs">
@@ -162,7 +162,7 @@ const retryAll = () => void Promise.all([playersStore.fetchPlayers(), pingsStore
       </div>
     </section>
 
-    <section v-if="broadcasts.length" class="space-y-2" aria-label="Open game requests">
+    <section v-if="broadcasts.length && !auth.user?.deletedAt" class="space-y-2" aria-label="Open game requests">
       <div class="flex items-center justify-between gap-3">
         <h2 class="section-title text-accent">Open game requests</h2>
         <span class="text-xs text-text-muted">{{ broadcasts.length }} live</span>
@@ -198,7 +198,7 @@ const retryAll = () => void Promise.all([playersStore.fetchPlayers(), pingsStore
             <span class="text-xs text-text-muted self-center flex-1">Ignored</span>
             <button type="button" class="btn-ghost btn-sm" @click="ignored.delete(b.id)">Undo</button>
           </template>
-          <template v-else-if="!inGame">
+          <template v-else-if="!inGame && !auth.user?.deletedAt">
             <button type="button" class="btn-ghost text-sm" @click="ignored.add(b.id)">Ignore</button>
             <button type="button" class="btn-primary text-sm flex-1" :disabled="joining === b.id" @click="join(b.id)">
               {{ joining === b.id ? 'Joining…' : 'Join game' }}
@@ -211,7 +211,7 @@ const retryAll = () => void Promise.all([playersStore.fetchPlayers(), pingsStore
     <section aria-label="Players" class="space-y-3">
       <div class="flex items-center justify-between gap-3">
         <h2 class="section-title">Players</h2>
-        <button type="button" class="btn-ghost btn-sm" :disabled="inGame" @click="openBroadcast">
+        <button v-if="!auth.user?.deletedAt" type="button" class="btn-ghost btn-sm" :disabled="inGame" @click="openBroadcast">
           Broadcast <span v-if="activeCount" class="badge-active">{{ activeCount }}</span>
         </button>
       </div>

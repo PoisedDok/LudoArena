@@ -3,6 +3,7 @@ import type { ParamsDictionary } from 'express-serve-static-core'
 import type { ParsedQs } from 'qs'
 import { authenticateToken, COOKIE_NAME } from '../lib/session'
 import { forbidden, unauthorized } from '../lib/errors'
+import prisma from '../lib/prisma'
 
 export interface AuthRequest<
   P extends ParamsDictionary = ParamsDictionary,
@@ -37,4 +38,22 @@ export async function requireAdmin(req: AuthRequest, res: Response, next: NextFu
     }
     next()
   })
+}
+
+/** Archived players retain read access to their history, but cannot start or change activity. */
+export async function requirePlayableAccount(req: AuthRequest, _res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (req.user?.role === 'ADMIN') {
+      next()
+      return
+    }
+    const user = await prisma.user.findUnique({ where: { id: req.user!.userId }, select: { deletedAt: true } })
+    if (!user || user.deletedAt) {
+      next(forbidden('This account is deleted and can only view its game and account history'))
+      return
+    }
+    next()
+  } catch (error) {
+    next(error)
+  }
 }

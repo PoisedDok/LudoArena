@@ -34,7 +34,15 @@ export const usePlayersStore = defineStore('players', () => {
     }
   }
 
-  function updateStatus(userId: string, isActive: boolean) {
+  function updateStatus(userId: string, isActive: boolean, deleted = false, restored = false) {
+    if (deleted) {
+      players.value = players.value.filter((player) => player.id !== userId)
+      return
+    }
+    if (restored) {
+      void fetchPlayers()
+      return
+    }
     const p = players.value.find((x) => x.id === userId)
     if (p) p.isActive = isActive
   }

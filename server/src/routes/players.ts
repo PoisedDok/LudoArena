@@ -1,12 +1,14 @@
 import { Router } from 'express'
+import { randomBytes } from 'crypto'
 import { hashPassword } from '../lib/password'
 import prisma, { lockUsers } from '../lib/prisma'
-import { requireAuth, requireAdmin, AuthRequest } from '../middleware/auth'
+import { requireAuth, requireAdmin, requirePlayableAccount, AuthRequest } from '../middleware/auth'
 import { idempotent } from '../middleware/idempotency'
 import { imageUpload, removeStoredImage, storeImage } from '../middleware/upload'
 import { statementLimiter, uploadLimiter } from '../middleware/rateLimit'
-import { disconnectUser, emitToAll, emitToUser } from '../lib/socket'
+import { disconnectUser, emitToAll, emitToUser, emitToUsers } from '../lib/socket'
 import { TransactionType, Role } from '../../generated/prisma'
+import { requiredPlayerCount } from '../services/settlement'
 import { AUTH, MONEY } from '../config/limits'
 import { amountCents, body, bool, optionalString, requiredString } from '../lib/validate'
 import { centsToDecimal } from '../lib/money'
@@ -16,6 +18,7 @@ import { buildStatement } from '../services/statement'
 import { renderStatement } from '../services/statementPdf'
 import { shapeStatement } from '../services/statementView'
 import { acquireExport } from '../services/exportGuard'
+import { OPEN_GAME_STATUSES } from '../services/games'
 import { PeriodQuery, resolvePeriod } from '../lib/period'
 import { LOCALE } from '../config/locale'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors'
@@ -73,10 +76,39 @@ export function playersRouter(): Router {
   router.get('/', requireAuth, async (req: AuthRequest, res) => {
     const isAdmin = req.user!.role === 'ADMIN'
     const users = await prisma.user.findMany({
+      where: { deletedAt: null },
       select: isAdmin ? fullUserFields : publicUserFields,
       orderBy: { username: 'asc' },
     })
     res.json({ data: users })
+  })
+
+  // GET /api/players/deleted — admin-only archive, excluding accounts whose private profile was purged
+  router.get('/deleted', requireAdmin, async (_req, res) => {
+    const users = await prisma.user.findMany({
+      where: { deletedAt: { not: null }, permanentlyPurgedAt: null, role: Role.PLAYER },
+      select: { ...fullUserFields, deletedAt: true },
+      orderBy: { deletedAt: 'desc' },
+    })
+    res.json({ data: users })
+  })
+
+  // POST /api/players/:id/restore — return an archived player to the regular player list.
+  router.post('/:id/restore', requireAdmin, async (req: AuthRequest<IdParams>, res) => {
+    const restored = await prisma.$transaction(async (tx) => {
+      await lockUsers(tx, [req.params.id])
+      const user = await tx.user.findUnique({ where: { id: req.params.id } })
+      if (!user || user.role !== Role.PLAYER || !user.deletedAt) throw notFound('Deleted player not found')
+      if (user.permanentlyPurgedAt) throw conflict('A permanently cleaned-up player cannot be restored')
+      return tx.user.update({
+        where: { id: req.params.id },
+        data: { deletedAt: null, isActive: false },
+        select: { id: true, username: true },
+      })
+    })
+    emitToAll('player:status', { userId: restored.id, username: restored.username, isActive: false, deleted: false, restored: true })
+    invalidateDashboard()
+    res.json({ data: { ok: true } })
   })
 
   // GET /api/players/:id
@@ -84,7 +116,7 @@ export function playersRouter(): Router {
     const isAdmin = req.user!.role === 'ADMIN'
     const isSelf = req.user!.userId === req.params.id
     const user = await prisma.user.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id, deletedAt: isAdmin || isSelf ? undefined : null },
       select: isAdmin || isSelf ? fullUserFields : publicUserFields,
     })
     if (!user) throw notFound('Player not found')
@@ -131,8 +163,9 @@ export function playersRouter(): Router {
   // PUT /api/players/:id
   router.put('/:id', requireAdmin, async (req: AuthRequest<IdParams>, res) => {
     const input = body(req)
-    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, deletedAt: true } })
     if (!target) throw notFound('Player not found')
+    if (target.deletedAt) throw conflict('Restore this player before editing their account')
 
     const data: Record<string, unknown> = {}
     let username: string | undefined
@@ -158,7 +191,13 @@ export function playersRouter(): Router {
     }
     await assertIdentityFree(username, phone, req.params.id)
 
-    const user = await prisma.user.update({ where: { id: req.params.id }, data, select: fullUserFields })
+    const user = await prisma.$transaction(async (tx) => {
+      await lockUsers(tx, [req.params.id])
+      const current = await tx.user.findUnique({ where: { id: req.params.id }, select: { deletedAt: true } })
+      if (!current) throw notFound('Player not found')
+      if (current.deletedAt) throw conflict('Restore this player before editing their account')
+      return tx.user.update({ where: { id: req.params.id }, data, select: fullUserFields })
+    })
     // A reset ends every session of that user (the version bump refuses old tokens, the rows go too),
     // sockets included.
     if (passwordChanged) {
@@ -169,13 +208,19 @@ export function playersRouter(): Router {
   })
 
   // PATCH /api/players/:id/active
-  router.patch('/:id/active', requireAuth, async (req: AuthRequest<IdParams>, res) => {
+  router.patch('/:id/active', requireAuth, requirePlayableAccount, async (req: AuthRequest<IdParams>, res) => {
     if (req.user!.userId !== req.params.id && req.user!.role !== 'ADMIN') throw forbidden()
     const isActive = bool(body(req).isActive, 'isActive')
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: { isActive },
-      select: { id: true, isActive: true, username: true },
+    const user = await prisma.$transaction(async (tx) => {
+      await lockUsers(tx, [req.params.id])
+      const target = await tx.user.findUnique({ where: { id: req.params.id } })
+      if (!target) throw notFound('Player not found')
+      if (target.deletedAt) throw conflict('Restore this player before changing their status')
+      return tx.user.update({
+        where: { id: req.params.id },
+        data: { isActive },
+        select: { id: true, isActive: true, username: true },
+      })
     })
     emitToAll('player:status', { userId: user.id, isActive: user.isActive, username: user.username })
     res.json({ data: user })
@@ -187,13 +232,17 @@ export function playersRouter(): Router {
     const cents = amountCents(input.amount, 'amount', { min: -MONEY.maxAmountCents, max: MONEY.maxAmountCents })
     if (cents === 0) throw badRequest('amount must not be zero')
     const description = optionalString(input.description, 'description', 200) ?? 'Admin adjustment'
-    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, deletedAt: true } })
     if (!target) throw notFound('Player not found')
+    if (target.deletedAt) throw conflict('Restore this player before adjusting their balance')
 
     const stored = req.file ? await storeImage(req.file) : null
     try {
       const user = await prisma.$transaction(async (tx) => {
         await lockUsers(tx, [req.params.id])
+        const current = await tx.user.findUnique({ where: { id: req.params.id }, select: { deletedAt: true } })
+        if (!current) throw notFound('Player not found')
+        if (current.deletedAt) throw conflict('Restore this player before adjusting their balance')
         const updated = await tx.user.update({
           where: { id: req.params.id },
           data: { balance: { increment: centsToDecimal(cents) } },
@@ -219,28 +268,117 @@ export function playersRouter(): Router {
     }
   })
 
-  // DELETE /api/players/:id — only a player without any history; the ledger is never rewritten
+  // DELETE /api/players/:id — move the account to the deleted-player archive without touching history
   router.delete('/:id', requireAdmin, async (req: AuthRequest<IdParams>, res) => {
-    const user = await prisma.user.findUnique({ where: { id: req.params.id } })
-    if (!user) throw notFound('Player not found')
-    if (user.role === Role.ADMIN) throw badRequest('Cannot delete admin account')
     if (req.params.id === req.user!.userId) throw badRequest('Cannot delete yourself')
+    const archived = await prisma.$transaction(async (tx) => {
+      await lockUsers(tx, [req.params.id])
+      const user = await tx.user.findUnique({ where: { id: req.params.id } })
+      if (!user) throw notFound('Player not found')
+      if (user.role === Role.ADMIN) throw badRequest('Cannot delete admin account')
+      if (user.deletedAt) throw conflict('Player is already in the deleted players list')
+      const openGames = await tx.gamePlayer.findMany({
+        where: { userId: req.params.id, game: { status: { in: OPEN_GAME_STATUSES } } },
+        select: { gameId: true },
+      })
+      if (openGames.length > 0) {
+        throw conflict(`Cannot delete this player while ${openGames.length} game${openGames.length === 1 ? ' is' : 's are'} active or awaiting completion. Finish or resolve ${openGames.length === 1 ? 'it' : 'them'} first.`)
+      }
 
+      const openPings = await tx.ping.findMany({
+        where: {
+          status: 'PENDING',
+          OR: [
+            { fromUserId: req.params.id },
+            { recipients: { some: { userId: req.params.id, response: { in: ['PENDING', 'ACCEPTED'] } } } },
+          ],
+        },
+        select: {
+          id: true,
+          fromUserId: true,
+          isBroadcast: true,
+          gameType: true,
+          recipients: {
+            select: { userId: true, response: true, user: { select: { username: true } } },
+          },
+        },
+      })
+
+      const archivedUser = await tx.user.update({
+        where: { id: req.params.id },
+        data: { deletedAt: new Date(), isActive: false },
+        select: { username: true, deletedAt: true },
+      })
+      return { openPings, username: archivedUser.username, deletedAt: archivedUser.deletedAt! }
+    })
+
+    emitToAll('player:status', {
+      userId: req.params.id,
+      isActive: false,
+      username: archived.username,
+      deleted: true,
+      deletedAt: archived.deletedAt.toISOString(),
+    })
+    for (const ping of archived.openPings) {
+      if (ping.fromUserId === req.params.id) {
+        const cancelled = await prisma.ping.updateMany({
+          where: { id: ping.id, status: 'PENDING' },
+          data: { status: 'DECLINED' },
+        })
+        if (cancelled.count === 0) continue
+        if (ping.isBroadcast) emitToAll('ping:broadcast_resolved', { pingId: ping.id, reason: 'cancelled' })
+        else emitToUsers(
+          (await prisma.pingRecipient.findMany({ where: { pingId: ping.id }, select: { userId: true } })).map((r) => r.userId),
+          'ping:declined',
+          { pingId: ping.id, byUserId: req.params.id },
+        )
+      } else if (ping.isBroadcast && ping.recipients.some((recipient) => recipient.userId === req.params.id && recipient.response === 'ACCEPTED')) {
+        const declined = await prisma.pingRecipient.updateMany({
+          where: { pingId: ping.id, userId: req.params.id, response: 'ACCEPTED', ping: { status: 'PENDING' } },
+          data: { response: 'DECLINED' },
+        })
+        if (declined.count === 0) continue
+        const acceptedPlayers = ping.recipients
+          .filter((recipient) => recipient.userId !== req.params.id && recipient.response === 'ACCEPTED')
+          .map((recipient) => ({ userId: recipient.userId, username: recipient.user.username }))
+        const acceptedCount = acceptedPlayers.length
+        const required = requiredPlayerCount(ping.gameType) - 1
+        emitToAll('ping:broadcast_update', { pingId: ping.id, acceptedCount, required })
+        emitToUser(ping.fromUserId, 'ping:partially_accepted', { pingId: ping.id, acceptedCount, required, acceptedPlayers })
+      } else if (!ping.isBroadcast && ping.recipients.some((recipient) => recipient.userId === req.params.id && recipient.response === 'PENDING')) {
+        const declined = await prisma.pingRecipient.updateMany({
+          where: { pingId: ping.id, userId: req.params.id, response: 'PENDING', ping: { status: 'PENDING' } },
+          data: { response: 'DECLINED' },
+        })
+        if (declined.count === 0) continue
+        emitToUser(ping.fromUserId, 'ping:declined', { pingId: ping.id, byUserId: req.params.id })
+      }
+    }
+    invalidateDashboard()
+    res.json({ data: { ok: true } })
+  })
+
+  // DELETE /api/players/:id/permanent-cleanup — erase login/contact data while retaining shared history
+  router.delete('/:id/permanent-cleanup', requireAdmin, async (req: AuthRequest<IdParams>, res) => {
+    if (req.params.id === req.user!.userId) throw badRequest('Cannot delete yourself')
+    const passwordHash = await hashPassword(randomBytes(32).toString('hex'))
     await prisma.$transaction(async (tx) => {
       await lockUsers(tx, [req.params.id])
-      const [games, ledger, pingsSent] = await Promise.all([
-        tx.gamePlayer.count({ where: { userId: req.params.id } }),
-        tx.transaction.count({ where: { userId: req.params.id } }),
-        tx.ping.count({ where: { fromUserId: req.params.id, game: { isNot: null } } }),
-      ])
-      if (games > 0 || ledger > 0 || pingsSent > 0) {
-        throw conflict('This player has game or ledger history and cannot be deleted. Change their password to lock them out.')
-      }
+      const user = await tx.user.findUnique({ where: { id: req.params.id } })
+      if (!user || !user.deletedAt || user.role !== Role.PLAYER) throw notFound('Deleted player not found')
+      if (user.permanentlyPurgedAt) throw conflict('Player profile has already been permanently cleaned up')
+
+      await tx.session.deleteMany({ where: { userId: req.params.id } })
       await tx.idempotencyKey.deleteMany({ where: { userId: req.params.id } })
-      await tx.depositRequest.deleteMany({ where: { userId: req.params.id } })
-      await tx.pingRecipient.deleteMany({ where: { OR: [{ userId: req.params.id }, { ping: { fromUserId: req.params.id } }] } })
-      await tx.ping.deleteMany({ where: { fromUserId: req.params.id } })
-      await tx.user.delete({ where: { id: req.params.id } })
+      await tx.user.update({
+        where: { id: req.params.id },
+        data: {
+          phone: null,
+          passwordHash,
+          permanentlyPurgedAt: new Date(),
+          tokenVersion: { increment: 1 },
+        },
+      })
     })
     disconnectUser(req.params.id)
     res.json({ data: { ok: true } })

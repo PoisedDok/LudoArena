@@ -121,7 +121,7 @@ describe('SessionExpiredModal', () => {
     const { default: SessionExpiredModal } = await import('./SessionExpiredModal.vue')
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { render: () => null } }] })
     const auth = useAuthStore()
-    auth.user = { id: 'u1', username: 'asha', phone: null, role: 'PLAYER', balance: 0, isActive: false, creditLimit: 500, spendLimit: 1000 }
+    auth.user = { id: 'u1', username: 'asha', phone: null, role: 'PLAYER', balance: 0, isActive: false, creditLimit: 500, spendLimit: 1000, deletedAt: null }
     const wrapper = mount(SessionExpiredModal, { global: { plugins: [router], stubs: { teleport: true } } })
     expect(wrapper.find('form').exists()).toBe(false)
 
@@ -167,7 +167,7 @@ describe('LoginView', () => {
   })
 
   it('sends the remember flag, keeps nothing in storage and goes to the dashboard', async () => {
-    apiMock.post.mockResolvedValue({ data: { data: { id: 'u1', username: 'asha', phone: null, role: 'PLAYER', balance: 0, isActive: false, creditLimit: 500, spendLimit: 1000 } } })
+    apiMock.post.mockResolvedValue({ data: { data: { id: 'u1', username: 'asha', phone: null, role: 'PLAYER', balance: 0, isActive: false, creditLimit: 500, spendLimit: 1000, deletedAt: null } } })
     const { wrapper, router } = await mountLogin()
     await wrapper.get('#login-username').setValue(' asha ')
     await wrapper.get('input[autocomplete="current-password"]').setValue('a-long-password')

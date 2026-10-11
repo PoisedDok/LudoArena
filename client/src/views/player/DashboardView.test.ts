@@ -21,6 +21,7 @@ describe('DashboardView broadcast joins', () => {
       isActive: true,
       creditLimit: 500,
       spendLimit: 1000,
+      deletedAt: null,
     }
 
     const pings = usePingsStore()
@@ -86,5 +87,40 @@ describe('DashboardView broadcast joins', () => {
     await joined?.get('button').trigger('click')
     await flushPromises()
     expect(respondToPing).toHaveBeenCalledWith('joined', 'DECLINED')
+  })
+
+  it('keeps archived players read-only and hides live game requests', () => {
+    const auth = useAuthStore()
+    auth.user = {
+      id: 'archived',
+      username: 'Archived',
+      role: 'PLAYER',
+      balance: 0,
+      isActive: false,
+      creditLimit: 500,
+      spendLimit: 1000,
+      deletedAt: new Date().toISOString(),
+    }
+
+    const pings = usePingsStore()
+    pings.liveBroadcasts = [{
+      id: 'open',
+      fromUserId: 'host',
+      fromUser: { id: 'host', username: 'Host' },
+      gameType: 'TWO_V_TWO',
+      stake: 10,
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      isBroadcast: true,
+      recipients: [],
+    }]
+
+    const wrapper = mount(DashboardView, {
+      global: { stubs: { RouterLink: true, StateBlock: true, PingModal: true, DepositModal: true } },
+    })
+
+    expect(wrapper.find('[aria-label="Open game requests"]').exists()).toBe(false)
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Broadcast')
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Add funds')
   })
 })

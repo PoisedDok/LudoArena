@@ -74,7 +74,7 @@ export function adminRouter(): Router {
   // GET /api/admin/broadcasts
   router.get('/broadcasts', requireAdmin, async (_req, res) => {
     const broadcasts = await prisma.ping.findMany({
-      where: { isBroadcast: true, status: 'PENDING', expiresAt: { gt: new Date() } },
+      where: { isBroadcast: true, status: 'PENDING', expiresAt: { gt: new Date() }, fromUser: { deletedAt: null } },
       include: {
         fromUser: { select: { id: true, username: true } },
         recipients: { include: { user: { select: { id: true, username: true } } } },

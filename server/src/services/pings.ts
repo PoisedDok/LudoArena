@@ -39,8 +39,9 @@ export async function createPing(input: CreatePingInput) {
   const { userId, gameType, stakeCents, message, isBroadcast, recipientIds } = input
 
   const { ping, sender, becameActive } = await prisma.$transaction(async (tx) => {
-    await lockUsers(tx, [userId])
+    await lockUsers(tx, [userId, ...(isBroadcast ? [] : recipientIds)])
     const sender = await tx.user.findUniqueOrThrow({ where: { id: userId } })
+    if (sender.deletedAt) throw forbidden('Deleted players cannot start games')
     const spendLimit = decimalToCents(sender.spendLimit)
     if (stakeCents > spendLimit) throw badRequest(`Stake exceeds your spend limit (${formatCents(spendLimit)})`)
     if (!coversStake(sender, stakeCents)) throw badRequest('Your balance and credit limit do not cover this stake')
@@ -50,7 +51,7 @@ export async function createPing(input: CreatePingInput) {
       if (gameType !== GameType.ONE_V_ONE) throw badRequest('Direct pings must be Solo (1v1). Use a broadcast for Teams or 4v2.')
       if (recipientIds.length === 0) throw badRequest('recipientIds required for direct ping')
       if (recipientIds.includes(userId)) throw badRequest('Cannot ping yourself')
-      const found = await tx.user.count({ where: { id: { in: recipientIds }, role: 'PLAYER' } })
+      const found = await tx.user.count({ where: { id: { in: recipientIds }, role: 'PLAYER', deletedAt: null } })
       if (found !== recipientIds.length) throw badRequest('One or more recipients do not exist')
     }
 
@@ -76,7 +77,7 @@ export async function createPing(input: CreatePingInput) {
   if (becameActive) emitToAll('player:status', { userId, isActive: true, username: sender.username })
   const from = { id: sender.id, username: sender.username }
   if (isBroadcast) {
-    const others = await prisma.user.findMany({ where: { isActive: true, role: 'PLAYER', id: { not: userId } }, select: { id: true } })
+    const others = await prisma.user.findMany({ where: { isActive: true, role: 'PLAYER', deletedAt: null, id: { not: userId } }, select: { id: true } })
     emitToUsers(others.map((u) => u.id), 'ping:broadcast_new', { ping, from })
     emitToAdmin('ping:broadcast_new', { ping, from })
   } else {
@@ -163,14 +164,33 @@ export async function respondToPing(
       return { status: 'declined' }
     }
 
-    const others = ping.recipients.filter((r) => r.response === PingResponse.ACCEPTED && r.userId !== userId)
-    await lockUsers(tx, [ping.fromUserId, userId, ...others.map((r) => r.userId)])
+    const acceptedOthers = ping.recipients.filter((r) => r.response === PingResponse.ACCEPTED && r.userId !== userId)
+    await lockUsers(tx, [ping.fromUserId, userId, ...acceptedOthers.map((r) => r.userId)])
 
     const stakeCents = decimalToCents(ping.stake)
     const needed = requiredPlayerCount(ping.gameType) - 1
+
+    const lockedUsers = await tx.user.findMany({
+      where: { id: { in: [ping.fromUserId, userId, ...acceptedOthers.map((r) => r.userId)] } },
+    })
+    const byId = new Map(lockedUsers.map((user) => [user.id, user]))
+    const sender = byId.get(ping.fromUserId)!
+    if (sender.deletedAt) {
+      await tx.ping.update({ where: { id: pingId }, data: { status: PingStatus.DECLINED } })
+      return { status: 'declined', cancelled: true, error: 'The sender account is deleted. The request was cancelled.' }
+    }
+    const archivedAccepted = acceptedOthers.filter((recipient) => byId.get(recipient.userId)?.deletedAt)
+    if (archivedAccepted.length > 0) {
+      await tx.pingRecipient.updateMany({
+        where: { pingId, userId: { in: archivedAccepted.map((recipient) => recipient.userId) }, response: PingResponse.ACCEPTED },
+        data: { response: PingResponse.DECLINED },
+      })
+    }
+    const others = acceptedOthers.filter((recipient) => !byId.get(recipient.userId)?.deletedAt)
     if (others.length >= needed) throw conflict('Game is already full')
 
-    const me = await tx.user.findUniqueOrThrow({ where: { id: userId } })
+    const me = byId.get(userId)!
+    if (me.deletedAt) throw forbidden('Deleted players cannot join games')
     if (await inOpenGame(tx, userId)) throw conflict('You are already in an active game')
     if (!coversStake(me, stakeCents)) throw badRequest('Your balance and credit limit do not cover this stake')
 
@@ -211,9 +231,7 @@ export async function respondToPing(
 
     // Enough players: re-verify everyone against the committed state before the game exists.
     const players = [...others.map((r) => ({ userId: r.userId, team: r.team })), { userId, team }]
-    const users = await tx.user.findMany({ where: { id: { in: [ping.fromUserId, ...players.map((p) => p.userId)] } } })
-    const byId = new Map(users.map((u) => [u.id, u]))
-    if (!coversStake(byId.get(ping.fromUserId)!, stakeCents) || (await inOpenGame(tx, ping.fromUserId))) {
+    if (!coversStake(sender, stakeCents) || (await inOpenGame(tx, ping.fromUserId))) {
       await tx.ping.update({ where: { id: pingId }, data: { status: PingStatus.DECLINED } })
       return { status: 'declined', cancelled: true, error: 'The sender can no longer start this game. The request was cancelled.' }
     }
