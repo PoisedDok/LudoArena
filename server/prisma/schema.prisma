@@ -1,0 +1,228 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Money is NUMERIC(12,2): exact to the cent. Application code does its arithmetic in integer cents
+// (src/lib/money.ts) and only hands strings with two decimals to the database.
+
+model User {
+  id           String  @id @default(cuid())
+  username     String  @unique
+  phone        String? @unique
+  passwordHash String
+  role         Role    @default(PLAYER)
+  balance      Decimal @default(0) @db.Decimal(12, 2)
+  creditLimit  Decimal @default(500) @db.Decimal(12, 2)
+  spendLimit   Decimal @default(1000) @db.Decimal(12, 2)
+  isActive     Boolean @default(false)
+  // Embedded in every session token; bumping it ends all sessions of the user.
+  tokenVersion Int     @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions        Session[]
+  sentPings       Ping[]           @relation("SentPings")
+  pingRecvd       PingRecipient[]
+  gamePlayers     GamePlayer[]
+  transactions    Transaction[]
+  screenshots     Screenshot[]
+  depositRequests DepositRequest[]
+}
+
+model Ping {
+  id          String     @id @default(cuid())
+  fromUser    User       @relation("SentPings", fields: [fromUserId], references: [id])
+  fromUserId  String
+  gameType    GameType
+  stake       Decimal    @default(0) @db.Decimal(12, 2)
+  message     String?
+  isBroadcast Boolean    @default(false)
+  status      PingStatus @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime   @default(now())
+
+  game       Game?
+  recipients PingRecipient[]
+
+  @@index([status, expiresAt])
+  @@index([fromUserId])
+}
+
+model PingRecipient {
+  id       String       @id @default(cuid())
+  ping     Ping         @relation(fields: [pingId], references: [id])
+  pingId   String
+  user     User         @relation(fields: [userId], references: [id])
+  userId   String
+  response PingResponse @default(PENDING)
+  team     Int?
+
+  @@unique([pingId, userId])
+  @@index([userId])
+}
+
+model Game {
+  id            String     @id @default(cuid())
+  internalRef   String     @unique @default(cuid())
+  ping          Ping       @relation(fields: [pingId], references: [id])
+  pingId        String     @unique
+  gameType      GameType
+  stake         Decimal    @default(0) @db.Decimal(12, 2)
+  status        GameStatus @default(ACTIVE)
+  winnerId      String?
+  secondPlaceId String?
+  ludoRoomCode  String?
+  // Set while the undo window of an agreed result is running; the settlement job pays out when it passes.
+  settlesAt           DateTime?
+  settleWinnerId      String?
+  settleSecondPlaceId String?
+  createdAt           DateTime  @default(now())
+  finishedAt          DateTime?
+
+  players      GamePlayer[]
+  transactions Transaction[]
+  screenshots  Screenshot[]
+
+  @@index([status, settlesAt])
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
+model GamePlayer {
+  id                     String  @id @default(cuid())
+  game                   Game    @relation(fields: [gameId], references: [id])
+  gameId                 String
+  user                   User    @relation(fields: [userId], references: [id])
+  userId                 String
+  team                   Int?
+  isDone                 Boolean @default(false)
+  confirmedWinnerId      String?
+  confirmedSecondPlaceId String?
+
+  @@unique([gameId, userId])
+  @@index([userId])
+}
+
+model Transaction {
+  id                 String          @id @default(cuid())
+  user               User            @relation(fields: [userId], references: [id])
+  userId             String
+  amount             Decimal         @db.Decimal(12, 2)
+  type               TransactionType
+  game               Game?           @relation(fields: [gameId], references: [id])
+  gameId             String?
+  description        String?
+  screenshotFilename String?
+  createdAt          DateTime        @default(now())
+
+  @@index([userId, createdAt])
+  @@index([gameId])
+  @@index([type, createdAt])
+}
+
+model Screenshot {
+  id         String   @id @default(cuid())
+  game       Game     @relation(fields: [gameId], references: [id])
+  gameId     String
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  filename   String
+  uploadedAt DateTime @default(now())
+
+  @@index([gameId])
+}
+
+model DepositRequest {
+  id                 String        @id @default(cuid())
+  user               User          @relation(fields: [userId], references: [id])
+  userId             String
+  amount             Decimal       @db.Decimal(12, 2)
+  screenshotFilename String
+  // SHA-256 of the image bytes: the same payment proof cannot back two requests.
+  screenshotHash     String?       @unique
+  status             DepositStatus @default(PENDING)
+  adminNote          String?
+  reviewedAt         DateTime?
+  createdAt          DateTime      @default(now())
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+// One row per signed-in browser. The token carries the id; signing out deletes the row, so a copied token
+// stops working at once (a password reset ends all of a user's sessions through User.tokenVersion).
+model Session {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// One row per (user, Idempotency-Key): a retried or double-tapped create replays the first answer.
+model IdempotencyKey {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  method    String
+  path      String
+  status    Int?
+  response  Json?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, key])
+  @@index([createdAt])
+}
+
+enum Role {
+  ADMIN
+  PLAYER
+}
+
+enum GameType {
+  ONE_V_ONE
+  TWO_V_TWO
+  FOUR_PLAYER
+}
+
+enum GameStatus {
+  ACTIVE
+  PENDING_COMPLETION
+  COMPLETED
+  DISPUTED
+}
+
+enum PingStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum PingResponse {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum TransactionType {
+  GAME_WIN
+  GAME_LOSS
+  COMMISSION
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+}
+
+enum DepositStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}

@@ -1,0 +1,100 @@
+{
+  "_about": "Response shapes of every endpoint and socket event the client consumes. The server contract test asserts real responses against this file; the client validates the answers it receives against it and shows an error state when one does not match. Keys ending in ? are optional; a value is a type name, a union a|b, @Name for a shared type, or {\"$each\": shape} for an array.",
+  "types": {
+    "UserBrief": { "id": "string", "username": "string" },
+    "SessionUser": {
+      "id": "string", "username": "string", "phone": "string|null", "role": "string",
+      "balance": "number", "isActive": "boolean", "creditLimit": "number", "spendLimit": "number"
+    },
+    "PublicPlayer": { "id": "string", "username": "string", "isActive": "boolean", "role": "string", "createdAt": "string" },
+    "FullPlayer": {
+      "id": "string", "username": "string", "phone": "string|null", "role": "string", "balance": "number",
+      "creditLimit": "number", "spendLimit": "number", "isActive": "boolean", "createdAt": "string", "updatedAt": "string"
+    },
+    "GamePlayer": {
+      "userId": "string", "team": "number|null", "isDone": "boolean",
+      "confirmedWinnerId": "string|null", "confirmedSecondPlaceId": "string|null", "user": "@UserBrief"
+    },
+    "Screenshot": { "id": "string", "gameId": "string", "userId": "string", "filename": "string", "uploadedAt": "string" },
+    "Game": {
+      "id": "string", "internalRef": "string", "gameType": "string", "stake": "number", "status": "string",
+      "winnerId": "string|null", "secondPlaceId": "string|null", "ludoRoomCode": "string|null",
+      "settlesAt": "string|null", "createdAt": "string", "finishedAt": "string|null",
+      "players": { "$each": "@GamePlayer" },
+      "screenshots": { "$each": "@Screenshot" },
+      "ping": { "fromUserId": "string", "fromUser": "@UserBrief" }
+    },
+    "Ping": {
+      "id": "string", "fromUserId": "string", "gameType": "string", "stake": "number", "message": "string|null",
+      "isBroadcast": "boolean", "status": "string", "expiresAt": "string", "createdAt": "string",
+      "fromUser": "@UserBrief",
+      "recipients": { "$each": { "userId": "string", "response": "string", "team": "number|null", "user": "@UserBrief" } }
+    },
+    "OwnTransaction": {
+      "id": "string", "userId": "string", "amount": "number", "type": "string", "gameId": "string|null",
+      "description": "string|null", "screenshotFilename": "string|null", "createdAt": "string", "balanceAfter": "number"
+    },
+    "AdminTransaction": {
+      "id": "string", "userId": "string", "amount": "number", "type": "string", "gameId": "string|null",
+      "description": "string|null", "createdAt": "string", "user": "@UserBrief"
+    },
+    "Deposit": {
+      "id": "string", "userId": "string", "amount": "number", "screenshotFilename": "string", "status": "string",
+      "adminNote": "string|null", "reviewedAt": "string|null", "createdAt": "string",
+      "user": { "id": "string", "username": "string", "balance?": "number" }
+    },
+    "OwnDeposit": {
+      "id": "string", "userId": "string", "amount": "number", "screenshotFilename": "string", "status": "string",
+      "adminNote": "string|null", "reviewedAt": "string|null", "createdAt": "string"
+    },
+    "Totals": {
+      "games": "number", "volume": "number", "commission": "number", "depositsApproved": "number",
+      "depositsAmount": "number", "playersInPeriod": "number", "completedGames": "number", "disputedGames": "number"
+    },
+    "Stats": {
+      "period": { "key": "string", "kind": "string", "from": "string", "to": "string", "granularity": "string", "days": "number", "timezone": "string" },
+      "totals": "@Totals",
+      "previous": "object|null",
+      "chart": { "$each": { "date": "string", "games": "number", "volume": "number", "commission": "number" } },
+      "topPlayers": { "$each": { "userId": "string", "username": "string", "wins": "number", "net": "number" } },
+      "live": { "activePlayers": "number", "disputedGames": "number", "pendingDeposits": "number", "totalPlayerBalance": "number" },
+      "now": { "month": "string", "date": "string" }
+    }
+  },
+  "endpoints": {
+    "auth.login": "@SessionUser",
+    "auth.me": "@SessionUser",
+    "players.list.public": { "$each": "@PublicPlayer" },
+    "players.list.admin": { "$each": "@FullPlayer" },
+    "players.detail.full": "@FullPlayer",
+    "players.transactions": { "$each": "@OwnTransaction" },
+    "pings.list": { "$each": "@Ping" },
+    "pings.create": "@Ping",
+    "pings.respond": { "status": "string", "started": "boolean", "acceptedCount?": "number|undefined", "required?": "number|undefined" },
+    "games.list": { "$each": "@Game" },
+    "games.detail": "@Game",
+    "games.confirm": { "status": "string", "winnerId?": "string", "secondPlaceId?": "string|null", "undoWindowMs?": "number", "settlesAt?": "number" },
+    "deposits.mine": { "$each": "@OwnDeposit" },
+    "deposits.create": "@Deposit",
+    "deposits.admin": { "$each": "@Deposit" },
+    "deposits.review": "@Deposit",
+    "admin.stats": "@Stats",
+    "admin.games": { "games": { "$each": "@Game" }, "total": "number" },
+    "admin.transactions": { "transactions": { "$each": "@AdminTransaction" }, "total": "number", "page": "number", "limit": "number" },
+    "admin.broadcasts": { "$each": "@Ping" }
+  },
+  "socket": {
+    "ping:received": { "ping": "@Ping", "from": "@UserBrief", "isBroadcast": "boolean" },
+    "ping:broadcast_new": { "ping": "@Ping", "from": "@UserBrief" },
+    "ping:accepted": { "pingId": "string", "game": "@Game" },
+    "ping:broadcast_resolved": { "pingId": "string", "reason": "string" },
+    "game:roomcode": { "gameId": "string", "ludoRoomCode": "string" },
+    "game:done": { "gameId": "string" },
+    "game:settling": { "gameId": "string", "winnerId": "string", "secondPlaceId": "string|null", "settlesAt": "number" },
+    "game:completed": { "gameId": "string", "winnerId": "string|null", "secondPlaceId": "string|null", "voided": "boolean", "balance": "number|undefined" },
+    "balance:updated": { "balance": "number" },
+    "player:status": { "userId": "string", "isActive": "boolean", "username": "string" },
+    "deposit:new": { "deposit": "@Deposit" },
+    "deposit:approved": { "depositId": "string", "amount": "number", "newBalance": "number", "adminNote": "string|null" }
+  }
+}

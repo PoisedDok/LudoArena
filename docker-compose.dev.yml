@@ -1,0 +1,73 @@
+# Development stack: Postgres + server (ts-node, reload on change) + Vite client.
+# Needs a .env from `make env` (generated secrets). Only the client port is published; the API and the
+# socket are reached through the Vite proxy, so the browser sees one origin like in production.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ludo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make env}
+      POSTGRES_DB: ludo_db
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ludo -d ludo_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: server-dev
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://ludo:${POSTGRES_PASSWORD}@postgres:5432/ludo_db
+      JWT_SECRET: ${JWT_SECRET:?run make env}
+      NODE_ENV: development
+      PORT: 4002
+      CLIENT_URL: http://localhost:5867
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?run make env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?run make env}
+    volumes:
+      - ./server/src:/app/server/src
+      - ./server/prisma:/app/server/prisma
+      - ./server/assets:/app/server/assets
+      - dev_uploads:/app/server/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Migrations and the admin seed must succeed before the app starts (no `;`, no `|| true`).
+    command: sh -c "npx ts-node -T src/scripts/migrate.ts && npx ts-node -T src/scripts/seed.ts && npx nodemon --watch src --ext ts --exec 'ts-node -T src/index.ts'"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4002/api/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 10
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: client-dev
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5867:5867"
+    environment:
+      VITE_API_URL: /api
+      PROXY_TARGET: http://server:4002
+    volumes:
+      - ./client/src:/app/client/src
+      - ./client/index.html:/app/client/index.html
+      - ./client/vite.config.ts:/app/client/vite.config.ts
+    depends_on:
+      server:
+        condition: service_healthy
+    command: npx vite --host 0.0.0.0
+
+volumes:
+  postgres_dev_data:
+  dev_uploads:

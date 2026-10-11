@@ -1,0 +1,48 @@
+# Production-like stack built from this checkout (local use). Values come from .env (`make env`); the
+# application refuses to start with a missing or placeholder secret, so there are no defaults here.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ludo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make env}
+      POSTGRES_DB: ludo_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ludo -d ludo_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      target: production
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5867:4002"
+    environment:
+      DATABASE_URL: postgresql://ludo:${POSTGRES_PASSWORD}@postgres:5432/ludo_db
+      JWT_SECRET: ${JWT_SECRET:?run make env}
+      NODE_ENV: production
+      PORT: 4002
+      CLIENT_URL: ${CLIENT_URL:-https://localhost:5867}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?run make env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?run make env}
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 900m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+  uploads_data:

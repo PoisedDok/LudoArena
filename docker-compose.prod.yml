@@ -1,0 +1,97 @@
+# Production stack for the Lenovo device: pre-built linux/amd64 image, never built on the device.
+#   docker compose -p ludo-arena -f docker-compose.prod.yml --env-file .env.prod up -d --wait
+# The app listens on 127.0.0.1:5867 only; the Cloudflare tunnel (ludo.aetherinc.xyz) connects to it there.
+# Every required value comes from .env.prod; there are no defaults for secrets.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ludo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ludo_db
+    # Sized for the 384 MB limit below; the pool of the app (8) is far below max_connections.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - effective_cache_size=192MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=30
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - deadlock_timeout=1s
+      - -c
+      - log_lock_waits=on
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ludo -d ludo_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    mem_limit: 384m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  app:
+    image: ludo-arena:prod
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5867:4002"
+    environment:
+      DATABASE_URL: postgresql://ludo:${POSTGRES_PASSWORD}@postgres:5432/ludo_db
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.prod}
+      NODE_ENV: production
+      PORT: 4002
+      CLIENT_URL: ${CLIENT_URL:-https://ludo.aetherinc.xyz}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Kolkata}
+      DB_POOL_MAX: ${DB_POOL_MAX:-8}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME in .env.prod}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env.prod}
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The image starts as root only to fix ownership of the uploads volume, then runs as `node`.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4002/api/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    stop_grace_period: 15s
+    mem_limit: 900m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+  uploads_data:

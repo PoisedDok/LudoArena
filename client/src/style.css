@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: #09090f;
+    color: #f1f5f9;
+    /* Prevent elastic bounce showing white bg on iOS */
+    overscroll-behavior: none;
+    /* Prevent double-tap zoom */
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    margin: 0;
+    /* A long username or code must wrap inside its card, never push the page sideways. */
+    overflow-wrap: anywhere;
+  }
+  * { box-sizing: border-box; }
+
+  /* Prevent iOS zoom on input focus — inputs must be at least 16px */
+  input, select, textarea {
+    font-size: max(16px, 1em);
+  }
+
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid #f59e0b;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* ---- Buttons: centred label, 44 px hit area on touch screens ---- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-center transition-all duration-150 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-bg hover:bg-amber-400 active:scale-95;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent border border-border text-text-primary hover:border-accent hover:text-accent;
+  }
+  .btn-danger {
+    @apply btn bg-danger/10 border border-danger/30 text-danger hover:bg-danger hover:text-white;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .icon-btn {
+    @apply inline-flex items-center justify-center w-9 h-9 rounded-lg text-text-muted hover:text-text-primary hover:bg-border transition-colors;
+  }
+  @media (pointer: coarse) {
+    .btn, .icon-btn { min-height: 44px; }
+    .icon-btn { min-width: 44px; }
+  }
+
+  /* ---- Surfaces ---- */
+  .card {
+    @apply bg-surface border border-border rounded-lg p-4;
+  }
+  .page {
+    @apply mx-auto w-full max-w-3xl px-4 py-4 md:px-6 md:py-6 space-y-4 md:space-y-5;
+  }
+  .page-wide {
+    @apply mx-auto w-full max-w-6xl px-4 py-4 md:px-6 md:py-6 space-y-4 md:space-y-5;
+  }
+  .page-title {
+    @apply text-base font-semibold leading-tight;
+  }
+  .page-sub {
+    @apply text-xs text-text-muted mt-0.5;
+  }
+  .section-title {
+    @apply text-sm font-semibold uppercase tracking-wide text-text-muted;
+  }
+
+  /* ---- Forms ---- */
+  .input {
+    @apply w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent transition-colors;
+  }
+  .label {
+    @apply block text-xs font-medium text-text-muted mb-1 uppercase tracking-wide;
+  }
+  .field-error {
+    @apply text-danger text-xs py-2 px-3 bg-danger/10 rounded border border-danger/20;
+  }
+
+  /* ---- Figures: monospace, aligned digits, never split across lines ---- */
+  .amount {
+    @apply mono whitespace-nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- Pills ---- */
+  .badge {
+    @apply inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-center whitespace-nowrap leading-5;
+  }
+  .badge-active    { @apply badge bg-active/10 text-active; }
+  .badge-inactive  { @apply badge bg-muted/10 text-text-muted; }
+  .badge-disputed  { @apply badge bg-danger/10 text-danger; }
+  .badge-completed { @apply badge bg-accent/10 text-accent; }
+  .badge-pending   { @apply badge bg-text-muted/10 text-text-muted; }
+  .tag {
+    @apply inline-flex items-center justify-center px-2 py-1 rounded text-xs font-medium text-center whitespace-nowrap leading-4;
+  }
+  .tag-credit  { @apply tag text-active bg-active/10; }
+  .tag-debit   { @apply tag text-danger bg-danger/10; }
+  .tag-neutral { @apply tag text-text-muted bg-border/60; }
+
+  /* ---- Lists on a phone: one card per record, text truncates inside the card ---- */
+  .list-card {
+    @apply bg-surface border border-border rounded-lg px-4 py-3 min-w-0;
+  }
+  .skeleton {
+    @apply bg-border/40 rounded animate-pulse;
+  }
+  .avatar {
+    @apply inline-flex items-center justify-center rounded-full bg-accent/15 text-accent font-bold uppercase flex-shrink-0 leading-none;
+  }
+
+  /* ---- Overlays ---- */
+  .sheet-backdrop {
+    @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 sm:p-4;
+  }
+  .sheet {
+    @apply flex flex-col w-full bg-surface border border-border rounded-t-2xl sm:rounded-lg overflow-hidden;
+    max-height: 92vh;
+    max-height: 92dvh;
+  }
+}
+
+/* Bottom tab bar clearance on mobile */
+.main-content {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+}
+@media (min-width: 640px) {
+  .main-content {
+    padding-bottom: 0;
+  }
+}
+
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+.min-h-screen-dvh {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.active-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 1);
+  animation: pulse-ring 1.8s infinite;
+}
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+  70%  { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+.balance-positive { font-family: 'Space Mono', monospace; color: #f59e0b; }
+.balance-negative { font-family: 'Space Mono', monospace; color: #ef4444; }
+.balance-zero     { font-family: 'Space Mono', monospace; color: #94a3b8; }
+.mono             { font-family: 'Space Mono', monospace; }
+
+@media (prefers-reduced-motion: reduce) {
+  .active-dot, .animate-pulse { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}

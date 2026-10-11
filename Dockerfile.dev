@@ -1,0 +1,24 @@
+FROM node:24-alpine AS base
+
+# Server dev stage: generated Prisma client + sources (src and prisma are overridden by volume mounts).
+FROM base AS server-dev
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY server/package.json ./server/
+COPY client/package.json ./client/
+RUN npm ci
+COPY server ./server
+WORKDIR /app/server
+RUN npx prisma generate
+EXPOSE 4002
+
+# Client dev stage
+FROM base AS client-dev
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY server/package.json ./server/
+COPY client/package.json ./client/
+RUN npm ci
+COPY client ./client
+WORKDIR /app/client
+EXPOSE 5867

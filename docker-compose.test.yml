@@ -1,0 +1,30 @@
+# Throw-away stack for `make check` / `make test`: a Postgres on tmpfs and the `check` image.
+# Credentials are generated per run by the Makefile and passed through the environment only.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ludo
+      POSTGRES_PASSWORD: ${TEST_DB_PASSWORD:?run through make}
+      POSTGRES_DB: postgres
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ludo -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  check:
+    build:
+      context: .
+      target: check
+    image: ludo-check:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      DATABASE_ADMIN_URL: postgresql://ludo:${TEST_DB_PASSWORD}@postgres:5432/postgres
+      JWT_SECRET: ${TEST_JWT_SECRET:?run through make}
+      CI: "true"
