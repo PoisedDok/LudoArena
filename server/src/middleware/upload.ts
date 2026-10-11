@@ -107,3 +107,19 @@ export async function removeStoredImage(filename: string): Promise<void> {
 }
 
 export const STORED_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$/
+
+/** Removes only app-generated images; temporary uploads and unrelated files are outside this scope. */
+export async function removeAllStoredImages(): Promise<void> {
+  let entries: fs.Dirent[]
+  try {
+    entries = await fsp.readdir(uploadsDir(), { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  for (const entry of entries) {
+    if (entry.isFile() && STORED_NAME.test(entry.name)) {
+      await fsp.unlink(path.join(uploadsDir(), entry.name))
+    }
+  }
+}

@@ -98,6 +98,7 @@
     "deposits.admin": { "$each": "@Deposit" },
     "deposits.review": "@Deposit",
     "admin.stats": "@Stats",
+    "admin.reset": { "ok": "boolean" },
     "admin.commissionSettings.list": { "settings": { "$each": "@CommissionSetting" } },
     "admin.commissionSettings.update": { "setting": "@CommissionSetting" },
     "admin.games": { "games": { "$each": "@Game" }, "total": "number" },
@@ -124,6 +125,7 @@
       "deletedAt?": "string|undefined", "restored?": "boolean|undefined"
     },
     "deposit:new": { "deposit": "@Deposit" },
-    "deposit:approved": { "depositId": "string", "amount": "number", "newBalance": "number", "adminNote": "string|null" }
+    "deposit:approved": { "depositId": "string", "amount": "number", "newBalance": "number", "adminNote": "string|null" },
+    "system:data-reset": {}
   }
 }

@@ -32,6 +32,7 @@ export function connectSocket(): Socket {
     }
     everConnected = true
   })
+  socket.on('system:data-reset', () => window.location.reload())
   return socket
 }
 

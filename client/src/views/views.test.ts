@@ -110,6 +110,25 @@ describe('AdminSettingsView', () => {
     expect(wrapper.text()).not.toContain('Solo (1v1)')
     expect(wrapper.text()).toContain('Try again')
   })
+
+  it('requires the exact reset phrase and reports a successful reset', async () => {
+    apiMock.get.mockResolvedValue({ data: { data: { settings: settingsFixture() } } })
+    apiMock.post.mockResolvedValue({ data: { data: { ok: true } } })
+    const wrapper = await mountSettings()
+
+    const resetButton = wrapper.findAll('button').find((button) => button.text().includes('Reset all admin data'))
+    if (!resetButton) throw new Error('Reset action was not rendered')
+    expect((resetButton.element as HTMLButtonElement).disabled).toBe(true)
+
+    await wrapper.get('#reset-confirmation').setValue('RESET')
+    expect((resetButton.element as HTMLButtonElement).disabled).toBe(false)
+    await wrapper.get('form:last-of-type').trigger('submit')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/admin/settings/reset', { confirmation: 'RESET' })
+    expect(wrapper.text()).toContain('Admin data reset. Accounts and credentials were preserved.')
+    wrapper.unmount()
+  })
 })
 
 describe('AdminPlayersView share login link', () => {

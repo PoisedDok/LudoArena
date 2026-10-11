@@ -188,5 +188,13 @@ describe('API and socket payloads match contracts/api-shapes.json', () => {
       expect(payloads.length, `socket event ${name} was emitted`).toBeGreaterThan(0)
       for (const payload of payloads) conforms(name, payload, 'socket')
     }
+
+    const reset = await A.post('/api/admin/settings/reset').send({ confirmation: 'RESET' })
+    expect(reset.status).toBe(200)
+    conforms('admin.reset', reset.body.data)
+    await wait()
+    const resetEvents = seen('system:data-reset')
+    expect(resetEvents.length).toBeGreaterThan(0)
+    for (const payload of resetEvents) conforms('system:data-reset', payload, 'socket')
   }, 60_000)
 })

@@ -45,6 +45,10 @@ const saving = reactive<Record<GameType, boolean>>({
   TWO_V_TWO: false,
   FOUR_PLAYER: false,
 })
+const resetConfirmation = ref('')
+const resetting = ref(false)
+const resetError = ref('')
+const resetMessage = ref('')
 
 function rateInput(bps: number | null): string {
   if (bps === null) return ''
@@ -144,6 +148,25 @@ async function save(gameType: GameType) {
   }
 }
 
+async function resetAdminData() {
+  if (resetting.value || resetConfirmation.value !== 'RESET') return
+  resetting.value = true
+  resetError.value = ''
+  resetMessage.value = ''
+  try {
+    const { data } = await api.post('/admin/settings/reset', { confirmation: resetConfirmation.value })
+    const response = expectShape<{ ok: boolean }>('admin.reset', data.data)
+    if (!response.ok) throw new Error('The server did not confirm the admin data reset.')
+    resetConfirmation.value = ''
+    resetMessage.value = 'Admin data reset. Accounts and credentials were preserved.'
+    await load()
+  } catch (error) {
+    resetError.value = errorMessage(error, 'Could not reset admin data.')
+  } finally {
+    resetting.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -226,5 +249,39 @@ onMounted(load)
         </section>
       </div>
     </StateBlock>
+
+    <section class="card mt-8 space-y-4 border-danger/40" aria-labelledby="reset-heading">
+      <div>
+        <h2 id="reset-heading" class="text-lg font-semibold text-danger">Reset admin data</h2>
+        <p class="mt-1 text-sm text-text-muted">
+          This permanently deletes all games, pings, deposits, transactions, screenshots, and related operational history.
+          Every player balance will be set to ₹0, limits restored to defaults, and player activity disabled.
+        </p>
+        <p class="mt-2 text-sm text-text-muted">
+          Player and admin accounts, IDs, usernames, passwords, and phone numbers are preserved. Archived and permanently cleaned-up
+          account statuses remain unchanged. Deleted operational and ledger history cannot be recovered.
+        </p>
+      </div>
+      <form class="space-y-3" @submit.prevent="resetAdminData">
+        <div>
+          <label class="label" for="reset-confirmation">Type RESET to confirm</label>
+          <input
+            id="reset-confirmation"
+            v-model="resetConfirmation"
+            class="input"
+            type="text"
+            autocomplete="off"
+            :disabled="resetting"
+            aria-describedby="reset-help"
+          />
+          <p id="reset-help" class="mt-1 text-xs text-text-muted">This action cannot be undone.</p>
+        </div>
+        <p v-if="resetError" class="field-error" role="alert">{{ resetError }}</p>
+        <p v-if="resetMessage" class="text-sm text-active" role="status">{{ resetMessage }}</p>
+        <button type="submit" class="btn-danger" :disabled="resetConfirmation !== 'RESET' || resetting">
+          {{ resetting ? 'Resetting…' : 'Reset all admin data' }}
+        </button>
+      </form>
+    </section>
   </div>
 </template>

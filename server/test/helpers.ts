@@ -6,7 +6,7 @@ import prisma from '../src/lib/prisma'
 import { createApp } from '../src/app'
 import { centsToDecimal } from '../src/lib/money'
 import { GameType, GameStatus, Role } from '../generated/prisma'
-import { lockAndReadCommissionSnapshot } from '../src/services/commissionSettings'
+import { DEFAULT_COMMISSION_SETTINGS, lockAndReadCommissionSnapshot } from '../src/services/commissionSettings'
 
 export const randomSecret = (): string => randomBytes(12).toString('hex')
 
@@ -18,13 +18,7 @@ export async function resetDb(): Promise<void> {
   await prisma.$executeRawUnsafe(
     'TRUNCATE "Session","IdempotencyKey","Screenshot","Transaction","DepositRequest","GamePlayer","Game","PingRecipient","Ping","CommissionSettingChange","CommissionSetting","User" RESTART IDENTITY CASCADE',
   )
-  await prisma.commissionSetting.createMany({
-    data: [
-      { gameType: GameType.ONE_V_ONE, tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300 },
-      { gameType: GameType.TWO_V_TWO, tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300 },
-      { gameType: GameType.FOUR_PLAYER, fourPlayerSecondBps: 1_000 },
-    ],
-  })
+  await prisma.commissionSetting.createMany({ data: DEFAULT_COMMISSION_SETTINGS })
 }
 
 export interface TestUser {

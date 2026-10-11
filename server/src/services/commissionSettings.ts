@@ -16,6 +16,12 @@ export type CommissionSettingInput = {
   fourPlayerSecondBps: number | null
 }
 
+export const DEFAULT_COMMISSION_SETTINGS = [
+  { gameType: GameType.ONE_V_ONE, tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300, fourPlayerSecondBps: null },
+  { gameType: GameType.TWO_V_TWO, tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300, fourPlayerSecondBps: null },
+  { gameType: GameType.FOUR_PLAYER, tierThresholdCents: null, highRateBps: null, lowRateBps: null, fourPlayerSecondBps: 1_000 },
+] satisfies Array<{ gameType: GameType } & CommissionSettingInput>
+
 export type CommissionSettingView = CommissionSettingInput & {
   gameType: GameType
   updatedAt: string

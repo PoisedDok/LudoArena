@@ -10,6 +10,7 @@ import { nowKeys, Period, PeriodQuery, resolvePeriod } from '../lib/period'
 import { LOCALE } from '../config/locale'
 import { listCommissionSettings, updateCommissionSetting } from '../services/commissionSettings'
 import type { CommissionSettingInput } from '../services/commissionSettings'
+import { resetAdminData } from '../services/adminReset'
 
 type IdParams = { id: string }
 
@@ -60,6 +61,16 @@ export function adminRouter(): Router {
         }
     const saved = await updateCommissionSetting(gameType, setting, req.user!.userId)
     res.json({ data: { setting: saved } })
+  })
+
+  // POST /api/admin/settings/reset — remove operational history while preserving every account.
+  router.post('/settings/reset', requireAdmin, async (req: AuthRequest, res) => {
+    const input = body(req)
+    if (Object.keys(input).length !== 1 || input.confirmation !== 'RESET') {
+      throw badRequest('confirmation must be exactly RESET')
+    }
+    await resetAdminData()
+    res.json({ data: { ok: true } })
   })
 
   // GET /api/admin/stats?period=YYYY-MM|YYYY|last7|last30|last90|all | from=&to=   [&compare=0]
