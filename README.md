@@ -1,5 +1,95 @@
 <div align="center">
-  <img src="client/public/favicon.svg" alt="Ludo Arena mark" width="88" height="84">
+  <svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ludo Arena premium mark">
+    <defs>
+      <linearGradient id="bgGlow" x1="24" y1="16" x2="130" y2="144" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#170F2E"/>
+        <stop offset="0.52" stop-color="#0F152E"/>
+        <stop offset="1" stop-color="#0A0F1A"/>
+      </linearGradient>
+      <linearGradient id="ringGlow" x1="32" y1="24" x2="128" y2="136" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#7C52FF"/>
+        <stop offset="0.5" stop-color="#42D6FF"/>
+        <stop offset="1" stop-color="#9BF7D8"/>
+      </linearGradient>
+      <linearGradient id="tileA" x1="33" y1="34" x2="104" y2="82" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#C0B8FF"/>
+        <stop offset="1" stop-color="#7C52FF"/>
+      </linearGradient>
+      <linearGradient id="tileB" x1="56" y1="38" x2="124" y2="120" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#7EE7FF"/>
+        <stop offset="1" stop-color="#2BBCEB"/>
+      </linearGradient>
+      <linearGradient id="tileC" x1="30" y1="98" x2="108" y2="144" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#FFE8A3"/>
+        <stop offset="1" stop-color="#FFB84D"/>
+      </linearGradient>
+      <linearGradient id="tileD" x1="44" y1="64" x2="128" y2="134" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#FF9DC8"/>
+        <stop offset="1" stop-color="#FF5F96"/>
+      </linearGradient>
+      <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="8" result="blur"/>
+        <feMerge>
+          <feMergeNode in="blur"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+      <style>
+        .pulse { animation: pulse 4.5s ease-in-out infinite; transform-origin: center; }
+        .drift { animation: drift 6s ease-in-out infinite alternate; transform-origin: center; }
+        .spin { animation: spin 16s linear infinite; transform-origin: center; }
+        .shimmer { animation: shimmer 3s ease-in-out infinite; }
+        @keyframes pulse {
+          0%, 100% { transform: scale(0.96); opacity: 0.72; }
+          50% { transform: scale(1.04); opacity: 1; }
+        }
+        @keyframes drift {
+          0% { transform: translateY(0px); }
+          100% { transform: translateY(-6px); }
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes shimmer {
+          0%, 100% { opacity: 0.45; }
+          50% { opacity: 1; }
+        }
+      </style>
+    </defs>
+
+    <rect x="10" y="10" width="140" height="140" rx="38" fill="url(#bgGlow)"/>
+    <circle class="pulse" cx="80" cy="80" r="58" fill="url(#ringGlow)" opacity="0.18"/>
+    <circle class="spin" cx="80" cy="80" r="58" stroke="url(#ringGlow)" stroke-width="2.2" opacity="0.8"/>
+
+    <g class="drift">
+      <path d="M80 30L118 58L80 130L42 58L80 30Z" fill="url(#tileA)" opacity="0.26"/>
+      <path d="M80 30L118 58L80 130L42 58L80 30Z" stroke="rgba(255,255,255,0.38)" stroke-width="1.6"/>
+      <path d="M80 42L103 61L80 112L57 61L80 42Z" fill="url(#tileA)" opacity="0.96"/>
+      <path d="M126 80L94 102L80 130L80 80L126 80Z" fill="url(#tileB)" opacity="0.92"/>
+      <path d="M80 80L34 80L80 130L80 80Z" fill="url(#tileC)" opacity="0.94"/>
+      <path d="M80 80L80 30L42 58L80 80Z" fill="url(#tileD)" opacity="0.94"/>
+      <circle cx="80" cy="80" r="14" fill="#F7F5FF" opacity="0.9"/>
+      <circle cx="80" cy="80" r="8" fill="#111827" opacity="0.9"/>
+    </g>
+
+    <g filter="url(#softGlow)">
+      <path d="M80 22C92 22 104 32 104 44C104 52 101 58 96 63L80 80L64 63C59 58 56 52 56 44C56 32 68 22 80 22Z" fill="url(#tileA)" opacity="0.9"/>
+      <path d="M138 80C138 92 128 104 116 104C108 104 102 101 97 96L80 80L97 64C102 59 108 56 116 56C128 56 138 68 138 80Z" fill="url(#tileB)" opacity="0.9"/>
+      <path d="M80 138C68 138 56 128 56 116C56 108 59 102 64 97L80 80L96 97C101 102 104 108 104 116C104 128 92 138 80 138Z" fill="url(#tileC)" opacity="0.9"/>
+      <path d="M22 80C22 68 32 56 44 56C52 56 58 59 63 64L80 80L63 97C58 102 52 104 44 104C32 104 22 92 22 80Z" fill="url(#tileD)" opacity="0.9"/>
+    </g>
+
+    <g class="shimmer" opacity="0.7">
+      <path d="M80 32L103 55L80 80L57 55L80 32Z" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="1.4"/>
+      <path d="M80 80L104 105L80 128L56 105L80 80Z" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.2"/>
+    </g>
+
+    <circle cx="128" cy="42" r="3.5" fill="#D7F7FF" opacity="0.95"/>
+    <circle cx="40" cy="118" r="4" fill="#FFD0E8" opacity="0.9"/>
+    <circle cx="114" cy="116" r="3" fill="#D9E8FF" opacity="0.9"/>
+  </svg>
+
   <h1>Ludo Arena</h1>
   <p><strong>Every match, accounted for.</strong></p>
   <p>A private, self-hosted hub for coordinating Ludo games and keeping a clear, shared ledger.</p>
