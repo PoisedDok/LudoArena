@@ -89,6 +89,36 @@ describe('sign out', () => {
 })
 
 describe('room isolation', () => {
+  it('sends accepted broadcast player names only to the broadcaster', async () => {
+    const [sender, joiner, observer] = await Promise.all([1, 2, 3].map(() => createUser({ balanceCents: 100_000, isActive: true })))
+    const senderSocket = await open(sender!)
+    const joinerSocket = await open(joiner!)
+    const observerSocket = await open(observer!)
+
+    const created = await request(running.built.app)
+      .post('/api/pings')
+      .set('Cookie', senderSocket.cookie)
+      .send({ gameType: 'TWO_V_TWO', stake: 100, isBroadcast: true })
+    expect(created.status).toBe(201)
+
+    const joined = await request(running.built.app)
+      .patch(`/api/pings/${created.body.data.id}/respond`)
+      .set('Cookie', joinerSocket.cookie)
+      .send({ response: 'ACCEPTED' })
+    expect(joined.status).toBe(200)
+    await settle()
+
+    const senderEvent = senderSocket.events.find(([name]) => name === 'ping:partially_accepted')
+    expect(senderEvent?.[1]).toMatchObject({
+      pingId: created.body.data.id,
+      acceptedCount: 1,
+      required: 3,
+      acceptedPlayers: [{ userId: joiner!.id, username: joiner!.username }],
+    })
+    expect(joinerSocket.events.some(([name]) => name === 'ping:partially_accepted')).toBe(false)
+    expect(observerSocket.events.some(([name]) => name === 'ping:partially_accepted')).toBe(false)
+  })
+
   it('a player receives only their own events: balance, pings, deposits stay private', async () => {
     const admin = await createUser({ role: 'ADMIN' })
     const [alice, bob, carol] = await Promise.all([1, 2, 3].map(() => createUser({ balanceCents: 100_000, isActive: true })))
@@ -143,6 +173,10 @@ describe('room isolation', () => {
         ping: { create: { fromUserId: p1!.id, gameType: 'ONE_V_ONE', stake: '100.00', expiresAt: new Date() } },
         gameType: 'ONE_V_ONE',
         stake: '100.00',
+        commissionTierThresholdCents: 50_000,
+        commissionHighRateBps: 500,
+        commissionLowRateBps: 300,
+        commissionFourPlayerSecondBps: null,
         status: 'PENDING_COMPLETION',
         settlesAt: new Date(Date.now() - 1),
         settleWinnerId: p1!.id,

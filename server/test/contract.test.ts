@@ -68,10 +68,20 @@ describe('API and socket payloads match contracts/api-shapes.json', () => {
       get: (url: string) => request(app).get(url).set('Cookie', c),
       post: (url: string) => request(app).post(url).set('Cookie', c),
       patch: (url: string) => request(app).patch(url).set('Cookie', c),
+      put: (url: string) => request(app).put(url).set('Cookie', c),
     })
     const P1 = as(c1)
     const P2 = as(c2)
     const A = as(ca)
+
+    const commissionSettings = await A.get('/api/admin/settings/commission')
+    conforms('admin.commissionSettings.list', commissionSettings.body.data)
+    const commissionUpdate = await A.put('/api/admin/settings/commission/ONE_V_ONE').send({
+      tierThresholdCents: 50_000,
+      highRateBps: 500,
+      lowRateBps: 300,
+    })
+    conforms('admin.commissionSettings.update', commissionUpdate.body.data)
 
     // session
     const login = await request(app).post('/api/auth/login').send({ username: p1.username, password: p1.password })
@@ -159,11 +169,15 @@ describe('API and socket payloads match contracts/api-shapes.json', () => {
     const broadcasts = (await A.get('/api/admin/broadcasts')).body.data
     expect(broadcasts.length).toBe(1)
     conforms('admin.broadcasts', broadcasts)
+    const teamBroadcast = await P2.post('/api/pings').send({ gameType: 'TWO_V_TWO', stake: 50, isBroadcast: true })
+    const partialJoin = await P1.patch(`/api/pings/${teamBroadcast.body.data.id}/respond`).send({ response: 'ACCEPTED' })
+    expect(partialJoin.status).toBe(200)
+    expect(partialJoin.body.data.started).toBe(false)
     await wait(500)
 
     // socket payloads the client handles
     const seen = (name: string) => (events.get(name) ?? []).map((e) => e.payload)
-    for (const name of ['ping:received', 'ping:broadcast_new', 'ping:accepted', 'ping:broadcast_resolved', 'game:roomcode', 'game:done', 'game:settling', 'game:completed', 'balance:updated', 'player:status', 'deposit:new', 'deposit:approved']) {
+    for (const name of ['ping:received', 'ping:broadcast_new', 'ping:broadcast_update', 'ping:partially_accepted', 'ping:accepted', 'ping:broadcast_resolved', 'game:roomcode', 'game:done', 'game:settling', 'game:completed', 'balance:updated', 'player:status', 'deposit:new', 'deposit:approved']) {
       const payloads = seen(name)
       expect(payloads.length, `socket event ${name} was emitted`).toBeGreaterThan(0)
       for (const payload of payloads) conforms(name, payload, 'socket')

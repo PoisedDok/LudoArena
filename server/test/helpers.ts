@@ -6,6 +6,7 @@ import prisma from '../src/lib/prisma'
 import { createApp } from '../src/app'
 import { centsToDecimal } from '../src/lib/money'
 import { GameType, GameStatus, Role } from '../generated/prisma'
+import { lockAndReadCommissionSnapshot } from '../src/services/commissionSettings'
 
 export const randomSecret = (): string => randomBytes(12).toString('hex')
 
@@ -15,8 +16,15 @@ export function buildApp(): Express {
 
 export async function resetDb(): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE "Session","IdempotencyKey","Screenshot","Transaction","DepositRequest","GamePlayer","Game","PingRecipient","Ping","User" RESTART IDENTITY CASCADE',
+    'TRUNCATE "Session","IdempotencyKey","Screenshot","Transaction","DepositRequest","GamePlayer","Game","PingRecipient","Ping","CommissionSettingChange","CommissionSetting","User" RESTART IDENTITY CASCADE',
   )
+  await prisma.commissionSetting.createMany({
+    data: [
+      { gameType: GameType.ONE_V_ONE, tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300 },
+      { gameType: GameType.TWO_V_TWO, tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300 },
+      { gameType: GameType.FOUR_PLAYER, fourPlayerSecondBps: 1_000 },
+    ],
+  })
 }
 
 export interface TestUser {
@@ -86,16 +94,21 @@ export async function createGame(opts: {
       expiresAt: new Date(Date.now() + 60_000),
     },
   })
-  return prisma.game.create({
-    data: {
+  return prisma.$transaction(async (tx) => {
+    const gameType = GameType[opts.gameType]
+    const commission = await lockAndReadCommissionSnapshot(tx, gameType)
+    return tx.game.create({
+      data: {
       pingId: ping.id,
-      gameType: GameType[opts.gameType],
+      gameType,
       stake: centsToDecimal(opts.stakeCents),
       status: GameStatus[opts.status ?? 'ACTIVE'],
+      ...commission,
       players: {
         create: opts.players.map((p, i) => ({ userId: p.id, team: opts.teams ? (opts.teams[i] ?? null) : null })),
       },
-    },
-    include: { players: true },
+      },
+      include: { players: true },
+    })
   })
 }

@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { InvalidResultError, planSettlement } from '../src/services/settlement'
+import { InvalidResultError, planSettlement as buildPlan } from '../src/services/settlement'
 import { tierCommissionCents } from '../src/lib/money'
+import type { CommissionSnapshot } from '../src/services/commissionSettings'
 
 const ids = (n: number) => Array.from({ length: n }, (_, i) => `p${i + 1}`)
 const delta = (plan: ReturnType<typeof planSettlement>, id: string) => plan.deltas.get(id)
+const soloRules: CommissionSnapshot = {
+  commissionTierThresholdCents: 50_000,
+  commissionHighRateBps: 500,
+  commissionLowRateBps: 300,
+  commissionFourPlayerSecondBps: null,
+}
+const fourPlayerRules: CommissionSnapshot = {
+  commissionTierThresholdCents: null,
+  commissionHighRateBps: null,
+  commissionLowRateBps: null,
+  commissionFourPlayerSecondBps: 1_000,
+}
+function planSettlement(input: Omit<Parameters<typeof buildPlan>[0], 'commission'> & { commission?: CommissionSnapshot }) {
+  const commission = input.commission ?? (input.gameType === 'FOUR_PLAYER' ? fourPlayerRules : soloRules)
+  return buildPlan({ ...input, commission })
+}
 
 describe('planSettlement: Solo', () => {
   it('pays the winner stake minus 5% and charges the loser the stake (stake 200)', () => {
@@ -27,6 +44,14 @@ describe('planSettlement: Solo', () => {
     expect(delta(plan, 'p2')).toBe(97_000)
     expect(delta(plan, 'p1')).toBe(-100_000)
   })
+
+  it('uses the configured rate at the threshold and the lower rate one cent above', () => {
+    const custom = { ...soloRules, commissionTierThresholdCents: 20_000, commissionHighRateBps: 250, commissionLowRateBps: 125 }
+    const atThreshold = planSettlement({ gameType: 'ONE_V_ONE', stakeCents: 20_000, players: ids(2).map((userId) => ({ userId, team: null })), winnerId: 'p1', commission: custom })
+    const above = planSettlement({ gameType: 'ONE_V_ONE', stakeCents: 20_001, players: ids(2).map((userId) => ({ userId, team: null })), winnerId: 'p1', commission: custom })
+    expect(delta(atThreshold, 'p1')).toBe(19_500)
+    expect(delta(above, 'p1')).toBe(19_751)
+  })
 })
 
 describe('planSettlement: Teams', () => {
@@ -41,6 +66,20 @@ describe('planSettlement: Teams', () => {
     const plan = planSettlement({ gameType: 'TWO_V_TWO', stakeCents: 30_000, players, winnerId: 'p3' })
     expect(delta(plan, 'p1')).toBe(28_500)
     expect(delta(plan, 'p3')).toBe(28_500)
+    expect(delta(plan, 'p2')).toBe(-30_000)
+    expect(delta(plan, 'p4')).toBe(-30_000)
+  })
+
+  it('uses the independent Teams commission snapshot', () => {
+    const commission: CommissionSnapshot = {
+      commissionTierThresholdCents: 50_000,
+      commissionHighRateBps: 250,
+      commissionLowRateBps: 125,
+      commissionFourPlayerSecondBps: null,
+    }
+    const plan = planSettlement({ gameType: 'TWO_V_TWO', stakeCents: 30_000, players, winnerId: 'p1', commission })
+    expect(delta(plan, 'p1')).toBe(29_250)
+    expect(delta(plan, 'p3')).toBe(29_250)
     expect(delta(plan, 'p2')).toBe(-30_000)
     expect(delta(plan, 'p4')).toBe(-30_000)
   })
@@ -62,6 +101,12 @@ describe('planSettlement: 4 players', () => {
     expect(delta(plan, 'p3')).toBe(90_000)
     expect(delta(plan, 'p2')).toBe(-100_000)
     expect(delta(plan, 'p4')).toBe(-100_000)
+  })
+
+  it('uses the snapshotted second-place rate', () => {
+    const commission = { ...fourPlayerRules, commissionFourPlayerSecondBps: 500 }
+    const plan = planSettlement({ gameType: 'FOUR_PLAYER', stakeCents: 10_000, players, winnerId: 'p1', secondPlaceId: 'p2', commission })
+    expect(delta(plan, 'p2')).toBe(9_500)
   })
 
   it.each([
@@ -103,7 +148,11 @@ describe('planSettlement: invariants', () => {
       const net = [...plan.deltas.values()].reduce((s, v) => s + v, 0)
       const commissions = plan.entries.filter((e) => e.type === 'COMMISSION').reduce((s, e) => s - e.amountCents, 0)
       // Everything players lose in total is the commission the platform keeps.
-      expect(net).toBe(kind === 'ONE_V_ONE' ? -tierCommissionCents(stake) : net)
+      expect(net).toBe(kind === 'ONE_V_ONE' ? -tierCommissionCents(stake, {
+        tierThresholdCents: soloRules.commissionTierThresholdCents!,
+        highRateBps: soloRules.commissionHighRateBps!,
+        lowRateBps: soloRules.commissionLowRateBps!,
+      }) : net)
       expect(-net).toBe(commissions)
     }
   })

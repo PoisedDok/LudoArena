@@ -18,6 +18,8 @@
     "Screenshot": { "id": "string", "gameId": "string", "userId": "string", "filename": "string", "uploadedAt": "string" },
     "Game": {
       "id": "string", "internalRef": "string", "gameType": "string", "stake": "number", "status": "string",
+      "commissionTierThresholdCents": "number|null", "commissionHighRateBps": "number|null",
+      "commissionLowRateBps": "number|null", "commissionFourPlayerSecondBps": "number|null",
       "winnerId": "string|null", "secondPlaceId": "string|null", "ludoRoomCode": "string|null",
       "settlesAt": "string|null", "createdAt": "string", "finishedAt": "string|null",
       "players": { "$each": "@GamePlayer" },
@@ -59,7 +61,13 @@
       "topPlayers": { "$each": { "userId": "string", "username": "string", "wins": "number", "net": "number" } },
       "live": { "activePlayers": "number", "disputedGames": "number", "pendingDeposits": "number", "totalPlayerBalance": "number" },
       "now": { "month": "string", "date": "string" }
-    }
+    },
+    "CommissionSetting": {
+      "gameType": "string", "tierThresholdCents": "number|null", "highRateBps": "number|null",
+      "lowRateBps": "number|null", "fourPlayerSecondBps": "number|null", "updatedAt": "string",
+      "updatedBy": "@AdminUser|null"
+    },
+    "AdminUser": { "id": "string", "username": "string" }
   },
   "endpoints": {
     "auth.login": "@SessionUser",
@@ -79,6 +87,8 @@
     "deposits.admin": { "$each": "@Deposit" },
     "deposits.review": "@Deposit",
     "admin.stats": "@Stats",
+    "admin.commissionSettings.list": { "settings": { "$each": "@CommissionSetting" } },
+    "admin.commissionSettings.update": { "setting": "@CommissionSetting" },
     "admin.games": { "games": { "$each": "@Game" }, "total": "number" },
     "admin.transactions": { "transactions": { "$each": "@AdminTransaction" }, "total": "number", "page": "number", "limit": "number" },
     "admin.broadcasts": { "$each": "@Ping" }
@@ -86,6 +96,11 @@
   "socket": {
     "ping:received": { "ping": "@Ping", "from": "@UserBrief", "isBroadcast": "boolean" },
     "ping:broadcast_new": { "ping": "@Ping", "from": "@UserBrief" },
+    "ping:broadcast_update": { "pingId": "string", "acceptedCount": "number", "required": "number" },
+    "ping:partially_accepted": {
+      "pingId": "string", "acceptedCount": "number", "required": "number",
+      "acceptedPlayers": { "$each": { "userId": "string", "username": "string" } }
+    },
     "ping:accepted": { "pingId": "string", "game": "@Game" },
     "ping:broadcast_resolved": { "pingId": "string", "reason": "string" },
     "game:roomcode": { "gameId": "string", "ludoRoomCode": "string" },

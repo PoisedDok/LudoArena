@@ -157,6 +157,10 @@ describe('serving screenshots', () => {
         ping: { create: { fromUserId: a.id, gameType: 'ONE_V_ONE', stake: '10.00', expiresAt: new Date() } },
         gameType: 'ONE_V_ONE',
         stake: '10.00',
+        commissionTierThresholdCents: 50_000,
+        commissionHighRateBps: 500,
+        commissionLowRateBps: 300,
+        commissionFourPlayerSecondBps: null,
         players: { create: [{ userId: a.id }, { userId: b.id }] },
       },
     })

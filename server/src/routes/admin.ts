@@ -8,6 +8,8 @@ import { publishSettlement, settleGame, SettlementBlockedError, InvalidResultErr
 import { dashboardData, liveFigures } from '../services/dashboard'
 import { nowKeys, Period, PeriodQuery, resolvePeriod } from '../lib/period'
 import { LOCALE } from '../config/locale'
+import { listCommissionSettings, updateCommissionSetting } from '../services/commissionSettings'
+import type { CommissionSettingInput } from '../services/commissionSettings'
 
 type IdParams = { id: string }
 
@@ -20,6 +22,45 @@ function optionalPeriod(query: PeriodQuery, earliest?: Date): Period | undefined
 
 export function adminRouter(): Router {
   const router = Router()
+
+  // GET /api/admin/settings/commission
+  router.get('/settings/commission', requireAdmin, async (_req, res) => {
+    res.json({ data: { settings: await listCommissionSettings(prisma) } })
+  })
+
+  // PUT /api/admin/settings/commission/:gameType
+  router.put('/settings/commission/:gameType', requireAdmin, async (req: AuthRequest, res) => {
+    const gameType = oneOf(req.params.gameType, ['ONE_V_ONE', 'TWO_V_TWO', 'FOUR_PLAYER'] as const, 'gameType')
+    const input = body(req)
+    const allowed = gameType === 'FOUR_PLAYER'
+      ? ['fourPlayerSecondBps']
+      : ['tierThresholdCents', 'highRateBps', 'lowRateBps']
+    if (Object.keys(input).length !== allowed.length || Object.keys(input).some((key) => !allowed.includes(key))) {
+      throw badRequest(`Settings for ${gameType} must contain exactly: ${allowed.join(', ')}`)
+    }
+    const integerField = (field: string, min: number, max: number): number => {
+      const value = input[field]
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+        throw badRequest(`${field} must be a whole number from ${min} to ${max}`)
+      }
+      return value
+    }
+    const setting: CommissionSettingInput = gameType === 'FOUR_PLAYER'
+      ? {
+          tierThresholdCents: null,
+          highRateBps: null,
+          lowRateBps: null,
+          fourPlayerSecondBps: integerField('fourPlayerSecondBps', 0, 10_000),
+        }
+      : {
+          tierThresholdCents: integerField('tierThresholdCents', 0, 100_000_000),
+          highRateBps: integerField('highRateBps', 0, 10_000),
+          lowRateBps: integerField('lowRateBps', 0, 10_000),
+          fourPlayerSecondBps: null,
+        }
+    const saved = await updateCommissionSetting(gameType, setting, req.user!.userId)
+    res.json({ data: { setting: saved } })
+  })
 
   // GET /api/admin/stats?period=YYYY-MM|YYYY|last7|last30|last90|all | from=&to=   [&compare=0]
   router.get('/stats', requireAdmin, async (req: AuthRequest, res) => {

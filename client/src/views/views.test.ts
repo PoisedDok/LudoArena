@@ -4,8 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { expectShape, ContractError } from '../lib/contract'
 import AdminDashboardView from './admin/AdminDashboardView.vue'
+import AdminSettingsView from './admin/AdminSettingsView.vue'
 
-const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }))
+const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), put: vi.fn() }))
 vi.mock('../lib/api', () => ({ default: apiMock, setUnauthorizedHandler: vi.fn(), idempotencyKey: () => 'k', withKey: () => ({}) }))
 vi.mock('../lib/socket', () => ({
   connectSocket: vi.fn(),
@@ -27,6 +28,20 @@ function statsFixture() {
     live: { activePlayers: 5, disputedGames: 1, pendingDeposits: 2, totalPlayerBalance: 1234.5 },
     now: { month: '2026-10', date: '2026-10-11' },
   }
+}
+
+function settingsFixture() {
+  return [
+    { gameType: 'FOUR_PLAYER', tierThresholdCents: null, highRateBps: null, lowRateBps: null, fourPlayerSecondBps: 1_000, updatedAt: '2026-10-11T10:00:00.000Z', updatedBy: null },
+    { gameType: 'ONE_V_ONE', tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300, fourPlayerSecondBps: null, updatedAt: '2026-10-11T10:00:00.000Z', updatedBy: null },
+    { gameType: 'TWO_V_TWO', tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300, fourPlayerSecondBps: null, updatedAt: '2026-10-11T10:00:00.000Z', updatedBy: null },
+  ]
+}
+
+async function mountSettings() {
+  const wrapper = mount(AdminSettingsView, { global: { stubs: { teleport: true } } })
+  await flushPromises()
+  return wrapper
 }
 
 async function mountDashboard() {
@@ -54,6 +69,42 @@ describe('contract guard', () => {
       expect(error).toBeInstanceOf(ContractError)
       expect((error as ContractError).problems.join(' ')).toContain('$.live: missing')
     }
+  })
+})
+
+describe('AdminSettingsView', () => {
+  it('shows independent settings for each game type and saves only the selected type', async () => {
+    const settings = settingsFixture()
+    apiMock.get.mockResolvedValue({ data: { data: { settings } } })
+    apiMock.put.mockImplementation((_url: string, payload: Record<string, number>) =>
+      Promise.resolve({ data: { data: { setting: { ...settings[1], highRateBps: payload.highRateBps, updatedBy: { id: 'admin', username: 'admin' } } } } }),
+    )
+
+    const wrapper = await mountSettings()
+    expect(wrapper.text()).toContain('Solo (1v1)')
+    expect(wrapper.text()).toContain('Teams (2v2)')
+    expect(wrapper.text()).toContain('Four-player (4-player)')
+    expect(wrapper.text()).toContain('games created after the settings are saved')
+
+    const solo = wrapper.get('#heading-ONE_V_ONE').element.closest('section')
+    if (!solo) throw new Error('Solo settings section was not rendered')
+    await wrapper.get('#high-ONE_V_ONE').setValue('6.25')
+    await wrapper.get('#form-ONE_V_ONE').trigger('submit')
+    await flushPromises()
+
+    expect(apiMock.put).toHaveBeenCalledWith('/admin/settings/commission/ONE_V_ONE', {
+      tierThresholdCents: 50_000, highRateBps: 625, lowRateBps: 300,
+    })
+    expect(wrapper.text()).toContain('Commission settings saved.')
+    expect(apiMock.put).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows a retryable error instead of displaying defaults when settings fail to load', async () => {
+    apiMock.get.mockRejectedValue(new Error('offline'))
+    const wrapper = await mountSettings()
+    expect(wrapper.get('[role=alert]').text()).toContain('Could not load commission settings.')
+    expect(wrapper.text()).not.toContain('Solo (1v1)')
+    expect(wrapper.text()).toContain('Try again')
   })
 })
 

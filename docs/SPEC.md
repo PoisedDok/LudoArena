@@ -180,7 +180,7 @@ ludo-platform/
 
 ### F7: Commission Rules (Global, Rule-Based)
 
-Commission is calculated automatically based on game type and stake. There is no per-player commission setting.
+Commission is calculated automatically from a global setting for each game type. There is no per-player commission setting. Admins can edit the rules on **Admin → Settings**. Solo and Teams have independent tier thresholds and rates; Four-player has an independent second-place rate. The values below are the initial defaults and are not fixed in code.
 
 #### Solo (ONE_V_ONE)
 | Stake | Commission | Winner receives | Loser pays |
@@ -192,7 +192,7 @@ Example (stake=200): Winner +190, Admin +10, Loser −200
 Example (stake=1000): Winner +970, Admin +30, Loser −1000
 
 #### Teams (TWO_V_TWO)
-Same commission tiers as Solo, applied per winning player.
+Uses the same initial tier defaults as Solo, applied per winning player. Admins can configure its threshold and rates separately.
 
 | Stake | Commission | Each winner receives | Each loser pays |
 |---|---|---|---|
@@ -202,16 +202,16 @@ Same commission tiers as Solo, applied per winning player.
 Example (stake=300): Each winner +285, Admin +15 per winner (+30 total), Each loser −300
 
 #### 4v2 (FOUR_PLAYER — 4 individual players)
-Fixed rules regardless of stake amount:
+The initial second-place rate is 10%, regardless of stake amount. Admins can configure that rate. Other placements remain fixed as shown:
 
 | Place | Net change | Commission |
 |---|---|---|
 | 1st | +stake (full, no cut) | none |
-| 2nd | +(stake × 0.90) | 10% of stake → admin |
+| 2nd | stake less configured commission | configured percentage of stake → admin |
 | 3rd | −stake | none |
 | 4th | −stake | none |
 
-Example (stake=1000, 4 players, total pool=4000):
+Example at the default 10% rate (stake=1000, 4 players, total pool=4000):
 - 1st: wallet +1000 (their 1000 back + 1000 won = 2000 total, net +1000)
 - 2nd: wallet +900 (their 1000 back − 100 = 900 net), Admin +100
 - 3rd: −1000
@@ -261,6 +261,13 @@ Example (stake=1000, 4 players, total pool=4000):
 - Full platform-wide ledger, filterable, paginated (25/page)
 - Includes `COMMISSION` transaction type showing admin earnings
 
+### F14: Admin Commission Settings
+- Admin sidebar includes a Settings page with one commission card per game type.
+- Solo and Teams expose independent stake thresholds and rates at/below and above the threshold. Four-player exposes the second-place commission rate only.
+- New settings apply to games created after save. Every game stores its commission snapshot at creation; already-created games retain their rules when settings change.
+- Settings updates are validated server-side and recorded with the admin, timestamp, and before/after values.
+- Commission is the only setting in scope. First-place and third/fourth-place Four-player behavior remains unchanged.
+
 ---
 
 ## Data Model Summary
@@ -281,9 +288,9 @@ Screenshot: id, gameId, userId, filename, uploadedAt
 
 | Internal enum | Display name | Players | Commission |
 |---|---|---|---|
-| `ONE_V_ONE` | Solo | 2 | 5% (stake ≤500) / 3% (stake >500) |
-| `TWO_V_TWO` | Teams | 4 (2v2) | 5% (stake ≤500) / 3% (stake >500) |
-| `FOUR_PLAYER` | 4v2 | 4 (all individual) | Fixed: 10% of stake from 2nd place only |
+| `ONE_V_ONE` | Solo | 2 | Editable tier rates (initially 5% at/below 500 / 3% above) |
+| `TWO_V_TWO` | Teams | 4 (2v2) | Independent editable tier rates (initially 5% at/below 500 / 3% above) |
+| `FOUR_PLAYER` | 4-player | 4 (all individual) | Editable rate from 2nd place only (initially 10%) |
 
 ---
 
@@ -314,6 +321,8 @@ POST   /api/games/:id/confirm          # confirm result + declare winner (+ 2nd 
 POST   /api/games/:id/screenshots      # upload screenshot
 
 GET    /api/admin/stats                 # daily stats, commission totals
+GET    /api/admin/settings/commission   # read per-game-type commission settings
+PUT    /api/admin/settings/commission/:gameType # update commission for one game type
 GET    /api/admin/broadcasts           # live broadcasts with accept counts
 GET    /api/admin/transactions         # full ledger
 GET    /api/admin/games                # all games with detail

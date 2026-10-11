@@ -70,6 +70,38 @@ describe('creating pings', () => {
 describe('joining a broadcast', () => {
   beforeEach(resetDb)
 
+  it('lets an accepted player cancel their join and exposes joiners only to the broadcaster', async () => {
+    const [sender, joiner, observer] = await players(3)
+    const senderAgent = await login(app, sender!)
+    const joinerAgent = await login(app, joiner!)
+    const observerAgent = await login(app, observer!)
+    const ping = (await senderAgent.post('/api/pings').send({ gameType: 'TWO_V_TWO', stake: 100, isBroadcast: true })).body.data
+
+    const accepted = await joinerAgent.patch(`/api/pings/${ping.id}/respond`).send({ response: 'ACCEPTED' })
+    expect(accepted.status).toBe(200)
+    expect(accepted.body.data.started).toBe(false)
+
+    const senderPing = (await senderAgent.get('/api/pings')).body.data.find((p: { id: string }) => p.id === ping.id)
+    expect(senderPing.recipients).toEqual([
+      expect.objectContaining({
+        userId: joiner!.id,
+        response: 'ACCEPTED',
+        user: expect.objectContaining({ username: joiner!.username }),
+      }),
+    ])
+    const observerPing = (await observerAgent.get('/api/pings')).body.data.find((p: { id: string }) => p.id === ping.id)
+    expect(observerPing.recipients).toEqual([])
+
+    const cancelled = await joinerAgent.patch(`/api/pings/${ping.id}/respond`).send({ response: 'DECLINED' })
+    expect(cancelled.status).toBe(200)
+    expect(await prisma.pingRecipient.findFirstOrThrow({ where: { pingId: ping.id, userId: joiner!.id } }))
+      .toMatchObject({ response: 'DECLINED' })
+
+    const rejoined = await joinerAgent.patch(`/api/pings/${ping.id}/respond`).send({ response: 'ACCEPTED' })
+    expect(rejoined.status).toBe(200)
+    expect(rejoined.body.data.started).toBe(false)
+  })
+
   it('a burst of simultaneous joins on a Solo broadcast starts exactly one game with two players', async () => {
     const [sender, ...joiners] = await players(9)
     const senderAgent = await login(app, sender!)

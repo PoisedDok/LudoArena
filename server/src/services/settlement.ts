@@ -1,10 +1,10 @@
 import prisma, { lockGame, lockUsers } from '../lib/prisma'
 import { GameStatus, GameType, TransactionType } from '../../generated/prisma'
-import { COMMISSION } from '../config/limits'
 import { centsToDecimal, decimalToCents, formatCents, shareOfCents, tierCommissionCents, tierRatePercent } from '../lib/money'
 import { conflict, notFound } from '../lib/errors'
 import { emitToAdmin, emitToUser } from '../lib/socket'
 import { invalidateDashboard } from './dashboard'
+import type { CommissionSnapshot } from './commissionSettings'
 
 /**
  * The only place that moves game money. `planSettlement` is pure (what each player gets and which ledger
@@ -49,6 +49,7 @@ export function requiredPlayerCount(gameType: GameType): number {
 export function planSettlement(input: {
   gameType: GameType
   stakeCents: number
+  commission: CommissionSnapshot
   players: PlanPlayer[]
   winnerId: string
   secondPlaceId?: string | null
@@ -72,8 +73,17 @@ export function planSettlement(input: {
 
   if (gameType === GameType.ONE_V_ONE || gameType === GameType.TWO_V_TWO) {
     const label = gameType === GameType.ONE_V_ONE ? 'Solo' : 'Teams'
-    const commission = tierCommissionCents(stakeCents)
-    const pct = tierRatePercent(stakeCents)
+    const { commissionTierThresholdCents, commissionHighRateBps, commissionLowRateBps } = input.commission
+    if (commissionTierThresholdCents === null || commissionHighRateBps === null || commissionLowRateBps === null || input.commission.commissionFourPlayerSecondBps !== null) {
+      throw new InvalidResultError(`Invalid commission snapshot for ${gameType}`)
+    }
+    const rules = {
+      tierThresholdCents: commissionTierThresholdCents,
+      highRateBps: commissionHighRateBps,
+      lowRateBps: commissionLowRateBps,
+    }
+    const commission = tierCommissionCents(stakeCents, rules)
+    const pct = tierRatePercent(stakeCents, rules)
     let winners: PlanPlayer[]
     let losers: PlanPlayer[]
     if (gameType === GameType.ONE_V_ONE) {
@@ -92,14 +102,21 @@ export function planSettlement(input: {
     }
     for (const l of losers) add(l.userId, -stakeCents, TransactionType.GAME_LOSS, `Lost ${label} · stake ${stake}`)
   } else {
+    if (input.commission.commissionTierThresholdCents !== null
+      || input.commission.commissionHighRateBps !== null
+      || input.commission.commissionLowRateBps !== null
+      || input.commission.commissionFourPlayerSecondBps === null) {
+      throw new InvalidResultError(`Invalid commission snapshot for ${gameType}`)
+    }
     const second = input.secondPlaceId
     if (!second) throw new InvalidResultError('secondPlaceId required for a 4-player game')
     if (second === winnerId) throw new InvalidResultError('secondPlaceId must differ from winnerId')
     if (!ids.includes(second)) throw new InvalidResultError('Second place is not a player in this game')
-    const commission = shareOfCents(stakeCents, COMMISSION.fourPlayerSecondBps)
+    const commissionBps = input.commission.commissionFourPlayerSecondBps
+    const commission = shareOfCents(stakeCents, commissionBps)
     add(winnerId, stakeCents, TransactionType.GAME_WIN, `Won 4v2 · 1st place · stake ${stake} · no commission`)
     add(second, stakeCents, TransactionType.GAME_WIN, `4v2 · 2nd place · stake ${stake}`)
-    add(second, -commission, TransactionType.COMMISSION, `Commission 10% · 4v2 2nd place · stake ${stake}`)
+    add(second, -commission, TransactionType.COMMISSION, `Commission ${commissionBps / 100}% · 4v2 2nd place · stake ${stake}`)
     for (const l of players.filter((p) => p.userId !== winnerId && p.userId !== second)) {
       add(l.userId, -stakeCents, TransactionType.GAME_LOSS, `Lost 4v2 · stake ${stake}`)
     }
@@ -160,6 +177,12 @@ export async function settleGame(gameId: string, request: SettleRequest): Promis
     const plan = planSettlement({
       gameType: game.gameType,
       stakeCents: decimalToCents(game.stake),
+      commission: {
+        commissionTierThresholdCents: game.commissionTierThresholdCents,
+        commissionHighRateBps: game.commissionHighRateBps,
+        commissionLowRateBps: game.commissionLowRateBps,
+        commissionFourPlayerSecondBps: game.commissionFourPlayerSecondBps,
+      },
       players: game.players.map((p) => ({ userId: p.userId, team: p.team })),
       winnerId,
       secondPlaceId,

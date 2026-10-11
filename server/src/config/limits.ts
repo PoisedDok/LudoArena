@@ -5,15 +5,6 @@ export const MONEY = {
   maxAmountCents: 100_000_000,
 }
 
-export const COMMISSION = {
-  /** Solo and Teams: stakes above this pay the lower rate. */
-  tierThresholdCents: 50_000,
-  highRateBps: 500,
-  lowRateBps: 300,
-  /** 4v2: second place pays this share of the stake, first place pays nothing. */
-  fourPlayerSecondBps: 1_000,
-}
-
 export const GAME = {
   undoWindowMs: 10_000,
   pingTtlMs: 10 * 60 * 1000,

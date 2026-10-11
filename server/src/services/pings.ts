@@ -7,6 +7,7 @@ import { emitToAdmin, emitToAll, emitToUser, emitToUsers } from '../lib/socket'
 import { OPEN_GAME_STATUSES, gameInclude } from './games'
 import { requiredPlayerCount } from './settlement'
 import { invalidateDashboard } from './dashboard'
+import { lockAndReadCommissionSnapshot } from './commissionSettings'
 
 export interface CreatePingInput {
   userId: string
@@ -107,6 +108,7 @@ export interface RespondOutcome {
   declined?: boolean
   cancelled?: boolean
   isBroadcast?: boolean
+  acceptedPlayers?: Array<{ userId: string; username: string }>
   /** A player who had accepted was removed because they no longer qualify. */
   droppedId?: string
   game?: { id: string; players: unknown[] }
@@ -139,6 +141,20 @@ export async function respondToPing(
       // Ignoring a broadcast changes nothing: it stays open for everybody else.
       if (!mine) return { status: 'ignored' }
       await tx.pingRecipient.update({ where: { id: mine.id }, data: { response: PingResponse.DECLINED } })
+      if (ping.isBroadcast) {
+        const accepted = await tx.pingRecipient.findMany({
+          where: { pingId, response: PingResponse.ACCEPTED },
+          include: { user: { select: { id: true, username: true } } },
+        })
+        return {
+          status: 'declined',
+          senderId: ping.fromUserId,
+          isBroadcast: true,
+          acceptedCount: accepted.length,
+          required: requiredPlayerCount(ping.gameType) - 1,
+          acceptedPlayers: accepted.map((recipient) => ({ userId: recipient.userId, username: recipient.user.username })),
+        }
+      }
       const everyoneDeclined = !ping.isBroadcast && ping.recipients.every((r) => r.id === mine.id || r.response === PingResponse.DECLINED)
       if (everyoneDeclined) {
         await tx.ping.update({ where: { id: pingId }, data: { status: PingStatus.DECLINED } })
@@ -176,7 +192,21 @@ export async function respondToPing(
 
     const acceptedCount = others.length + 1
     if (acceptedCount < needed) {
-      return { status: 'accepted', acceptedCount, required: needed, started: false, senderId: ping.fromUserId, isBroadcast: ping.isBroadcast }
+      const acceptedPlayers = ping.isBroadcast
+        ? await tx.pingRecipient.findMany({
+          where: { pingId, response: PingResponse.ACCEPTED },
+          include: { user: { select: { id: true, username: true } } },
+        })
+        : []
+      return {
+        status: 'accepted',
+        acceptedCount,
+        required: needed,
+        started: false,
+        senderId: ping.fromUserId,
+        isBroadcast: ping.isBroadcast,
+        acceptedPlayers: acceptedPlayers.map((recipient) => ({ userId: recipient.userId, username: recipient.user.username })),
+      }
     }
 
     // Enough players: re-verify everyone against the committed state before the game exists.
@@ -196,12 +226,14 @@ export async function respondToPing(
     }
 
     await tx.ping.update({ where: { id: pingId }, data: { status: PingStatus.ACCEPTED } })
+    const commissionSnapshot = await lockAndReadCommissionSnapshot(tx, ping.gameType)
     const game = await tx.game.create({
       data: {
         pingId,
         gameType: ping.gameType,
         stake: centsToDecimal(stakeCents),
         status: GameStatus.ACTIVE,
+        ...commissionSnapshot,
         players: {
           create: [
             { userId: ping.fromUserId, team: ping.gameType === GameType.TWO_V_TWO ? 1 : null },
@@ -228,9 +260,14 @@ export function publishResponse(pingId: string, userId: string, o: RespondOutcom
   if (o.declined && o.senderId) emitToUser(o.senderId, 'ping:declined', { pingId, byUserId: userId })
   if (o.cancelled) emitToAll('ping:broadcast_resolved', { pingId, reason: 'cancelled' })
   if (o.droppedId) emitToUser(o.droppedId, 'ping:declined', { pingId, byUserId: o.droppedId })
-  if (o.status === 'accepted' && !o.started && o.acceptedCount !== undefined) {
-    if (o.isBroadcast) emitToAll('ping:broadcast_update', { pingId, acceptedCount: o.acceptedCount, required: o.required })
-    if (o.senderId) emitToUser(o.senderId, 'ping:partially_accepted', { pingId, acceptedCount: o.acceptedCount, required: o.required })
+  if (o.isBroadcast && !o.started && o.acceptedCount !== undefined) {
+    emitToAll('ping:broadcast_update', { pingId, acceptedCount: o.acceptedCount, required: o.required })
+    if (o.senderId) emitToUser(o.senderId, 'ping:partially_accepted', {
+      pingId,
+      acceptedCount: o.acceptedCount,
+      required: o.required,
+      acceptedPlayers: o.acceptedPlayers ?? [],
+    })
   }
   if (o.game && o.participantIds) {
     invalidateDashboard()

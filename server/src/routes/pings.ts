@@ -34,7 +34,13 @@ export function pingsRouter(): Router {
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
-    res.json({ data: pings })
+    res.json({
+      data: pings.map((ping) =>
+        ping.isBroadcast && ping.fromUserId !== userId
+          ? { ...ping, recipients: ping.recipients.filter((recipient) => recipient.userId === userId) }
+          : ping,
+      ),
+    })
   })
 
   // POST /api/pings — direct (Solo only) or broadcast

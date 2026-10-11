@@ -50,18 +50,20 @@ describe('cents conversion', () => {
 })
 
 describe('commission', () => {
+  const defaultRules = { tierThresholdCents: 50_000, highRateBps: 500, lowRateBps: 300 }
+
   it('uses 5% up to and including 500 and 3% above', () => {
-    expect(tierCommissionCents(20_000)).toBe(1_000)
-    expect(tierCommissionCents(50_000)).toBe(2_500)
-    expect(tierCommissionCents(50_001)).toBe(1_500)
-    expect(tierCommissionCents(100_000)).toBe(3_000)
+    expect(tierCommissionCents(20_000, defaultRules)).toBe(1_000)
+    expect(tierCommissionCents(50_000, defaultRules)).toBe(2_500)
+    expect(tierCommissionCents(50_001, defaultRules)).toBe(1_500)
+    expect(tierCommissionCents(100_000, defaultRules)).toBe(3_000)
   })
 
   it('rounds half up to the cent without float arithmetic', () => {
     // 333.33 * 5% = 16.6665 -> 16.67 ; 0.10 * 5% = 0.005 -> 0.01
-    expect(tierCommissionCents(33_333)).toBe(1_667)
-    expect(tierCommissionCents(10)).toBe(1)
-    expect(tierCommissionCents(9)).toBe(0)
+    expect(tierCommissionCents(33_333, defaultRules)).toBe(1_667)
+    expect(tierCommissionCents(10, defaultRules)).toBe(1)
+    expect(tierCommissionCents(9, defaultRules)).toBe(0)
     expect(shareOfCents(100_000, 1_000)).toBe(10_000)
   })
 })

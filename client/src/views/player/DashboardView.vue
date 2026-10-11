@@ -34,6 +34,14 @@ const inGame = computed(() => !!gamesStore.activeGame)
 const balance = computed(() => auth.user?.balance ?? 0)
 const balanceClass = computed(() => (balance.value > 0 ? 'balance-positive' : balance.value < 0 ? 'balance-negative' : 'balance-zero'))
 const broadcasts = computed(() => pingsStore.liveBroadcasts.map((b) => ({ ...b, parsed: splitMessage(b.message) })))
+const hasJoined = (broadcast: (typeof pingsStore.liveBroadcasts)[number]) =>
+  broadcast.recipients.some((recipient) => recipient.userId === auth.user?.id && recipient.response === 'ACCEPTED')
+const acceptedPlayers = (broadcast: (typeof pingsStore.liveBroadcasts)[number]) =>
+  broadcast._acceptedPlayers ?? broadcast.recipients.flatMap((recipient) =>
+    recipient.response === 'ACCEPTED' && recipient.user
+      ? [{ userId: recipient.userId, username: recipient.user.username }]
+      : [],
+  )
 
 async function toggleActive() {
   if (!auth.user || statusBusy.value) return
@@ -70,6 +78,19 @@ async function join(pingId: string) {
     await pingsStore.respondToPing(pingId, 'ACCEPTED')
   } catch (e) {
     actionError.value = errorMessage(e, 'Could not join this game.')
+  } finally {
+    joining.value = null
+  }
+}
+
+async function cancelJoin(pingId: string) {
+  if (joining.value) return
+  joining.value = pingId
+  actionError.value = ''
+  try {
+    await pingsStore.respondToPing(pingId, 'DECLINED')
+  } catch (e) {
+    actionError.value = errorMessage(e, 'Could not cancel your join.')
   } finally {
     joining.value = null
   }
@@ -157,12 +178,21 @@ const retryAll = () => void Promise.all([playersStore.fetchPlayers(), pingsStore
             <div v-if="b.parsed.room" class="text-xs mt-0.5">Room <span class="amount font-bold text-accent tracking-widest">{{ b.parsed.room }}</span></div>
           </div>
           <span v-if="b.fromUserId === auth.user?.id" class="text-xs text-text-muted flex-shrink-0">
-            {{ b._acceptedCount !== undefined ? `${b._acceptedCount}/${b._required}` : 'Waiting…' }}
+            {{ b._acceptedCount !== undefined ? `${b._acceptedCount}/${b._required}` : acceptedPlayers(b).length ? `${acceptedPlayers(b).length} joined` : 'Waiting…' }}
           </span>
         </div>
+        <p v-if="b.fromUserId === auth.user?.id && acceptedPlayers(b).length" class="text-xs text-text-muted mt-2">
+          Joined: {{ acceptedPlayers(b).map((player) => player.username).join(', ') }}
+        </p>
         <div class="flex gap-2 mt-3">
           <template v-if="b.fromUserId === auth.user?.id">
             <button type="button" class="btn-ghost text-sm text-danger flex-1" @click="cancel(b.id)">Cancel request</button>
+          </template>
+          <template v-else-if="hasJoined(b)">
+            <span class="text-xs text-active self-center flex-1">You joined · waiting for players</span>
+            <button type="button" class="btn-ghost text-sm text-danger" :disabled="joining === b.id" @click="cancelJoin(b.id)">
+              {{ joining === b.id ? 'Cancelling…' : 'Cancel join' }}
+            </button>
           </template>
           <template v-else-if="ignored.has(b.id)">
             <span class="text-xs text-text-muted self-center flex-1">Ignored</span>

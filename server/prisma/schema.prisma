@@ -32,6 +32,8 @@ model User {
   transactions    Transaction[]
   screenshots     Screenshot[]
   depositRequests DepositRequest[]
+  commissionSettingsUpdated CommissionSetting[]       @relation("CommissionSettingUpdater")
+  commissionChanges         CommissionSettingChange[] @relation("CommissionSettingChangeActor")
 }
 
 model Ping {
@@ -81,6 +83,10 @@ model Game {
   settlesAt           DateTime?
   settleWinnerId      String?
   settleSecondPlaceId String?
+  commissionTierThresholdCents Int?
+  commissionHighRateBps        Int?
+  commissionLowRateBps         Int?
+  commissionFourPlayerSecondBps Int?
   createdAt           DateTime  @default(now())
   finishedAt          DateTime?
 
@@ -180,6 +186,33 @@ model IdempotencyKey {
 
   @@unique([userId, key])
   @@index([createdAt])
+}
+
+model CommissionSetting {
+  gameType                 GameType @id
+  tierThresholdCents       Int?
+  highRateBps              Int?
+  lowRateBps               Int?
+  fourPlayerSecondBps      Int?
+  updatedAt                DateTime @updatedAt
+  updatedById              String?
+  updatedBy                User?    @relation("CommissionSettingUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  changes                  CommissionSettingChange[]
+}
+
+model CommissionSettingChange {
+  id        String            @id @default(cuid())
+  gameType  GameType
+  setting   CommissionSetting @relation(fields: [gameType], references: [gameType], onDelete: Restrict)
+  actorId   String?
+  actor     User?             @relation("CommissionSettingChangeActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorUsername String
+  before    Json
+  after     Json
+  createdAt DateTime          @default(now())
+
+  @@index([gameType, createdAt])
+  @@index([actorId, createdAt])
 }
 
 enum Role {

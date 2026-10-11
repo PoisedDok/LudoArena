@@ -40,13 +40,19 @@ function matchesPrimitive(value: unknown, name: string): boolean {
 
 export function checkShape(value: unknown, shape: Shape, types: Record<string, Shape>, path = '$'): string[] {
   if (typeof shape === 'string') {
-    if (shape.startsWith('@')) {
+    if (shape.startsWith('@') && !shape.includes('|')) {
       const named = types[shape.slice(1)]
       if (!named) throw new Error(`Unknown shape ${shape}`)
       return checkShape(value, named, types, path)
     }
     const options = shape.split('|')
-    return options.some((name) => matchesPrimitive(value, name))
+    const matches = options.some((name) => {
+      if (!name.startsWith('@')) return matchesPrimitive(value, name)
+      const named = types[name.slice(1)]
+      if (!named) throw new Error(`Unknown shape ${name}`)
+      return checkShape(value, named, types, path).length === 0
+    })
+    return matches
       ? []
       : [`${path}: expected ${shape}, got ${typeName(value)}`]
   }

@@ -130,15 +130,37 @@ describe('migrate script', () => {
       const baseline = fs.readFileSync(path.join(serverDir, 'prisma/migrations/0001_init/migration.sql'), 'utf8')
       await client.query(baseline)
       await client.query(`INSERT INTO "User" ("id","username","passwordHash","balance","updatedAt") VALUES ('legacy1','legacy_player','x',12.5,now())`)
+      await client.query(`
+        INSERT INTO "Ping" ("id","fromUserId","gameType","stake","expiresAt")
+        VALUES ('legacy_ping_solo','legacy1','ONE_V_ONE',200,now()), ('legacy_ping_four','legacy1','FOUR_PLAYER',200,now())
+      `)
+      await client.query(`
+        INSERT INTO "Game" ("id","internalRef","pingId","gameType","stake")
+        VALUES ('legacy_game_solo','legacy_ref_solo','legacy_ping_solo','ONE_V_ONE',200),
+               ('legacy_game_four','legacy_ref_four','legacy_ping_four','FOUR_PLAYER',200)
+      `)
 
       const run = migrate(url)
       expect(run.status, run.stdout + run.stderr).toBe(0)
       expect(run.stdout).toContain('baselining 0001_init')
 
       const applied = await client.query(`SELECT migration_name FROM _prisma_migrations ORDER BY migration_name`)
-      expect(applied.rows.map((r) => r.migration_name)).toEqual(['0001_init', '0002_exact_money_and_settlement_state', '0003_sessions'])
+      expect(applied.rows.map((r) => r.migration_name)).toEqual([
+        '0001_init',
+        '0002_exact_money_and_settlement_state',
+        '0003_sessions',
+        '0004_commission_settings',
+      ])
       const user = await client.query(`SELECT "balance"::text AS balance, "tokenVersion" FROM "User" WHERE "id" = 'legacy1'`)
       expect(user.rows[0]).toEqual({ balance: '12.50', tokenVersion: 0 })
+      const snapshots = await client.query(`
+        SELECT "id", "commissionTierThresholdCents", "commissionHighRateBps", "commissionLowRateBps", "commissionFourPlayerSecondBps"
+        FROM "Game" ORDER BY "id"
+      `)
+      expect(snapshots.rows).toEqual([
+        { id: 'legacy_game_four', commissionTierThresholdCents: null, commissionHighRateBps: null, commissionLowRateBps: null, commissionFourPlayerSecondBps: 1000 },
+        { id: 'legacy_game_solo', commissionTierThresholdCents: 50000, commissionHighRateBps: 500, commissionLowRateBps: 300, commissionFourPlayerSecondBps: null },
+      ])
 
       const again = migrate(url)
       expect(again.status, again.stdout + again.stderr).toBe(0)

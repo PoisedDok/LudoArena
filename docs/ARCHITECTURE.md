@@ -35,7 +35,7 @@ routes  ->  services (rules, transactions)  ->  lib (money, period, session, soc
 | Place | What lives there |
 |---|---|
 | `config/env.ts` | The only reader of `process.env`. Validates everything at start (names every problem, never a value): `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET` (32+ chars, no placeholder), `PORT`, `CLIENT_URL` (https in production), `TRUST_PROXY`, `DB_POOL_MAX`. No default secret exists anywhere |
-| `config/limits.ts`, `config/locale.ts` | Every tunable number (amount cap, commission tiers, timers, rate limits, page sizes) and the one timezone / currency / locale (`APP_TIMEZONE`, default `Asia/Kolkata`) |
+| `config/limits.ts`, `config/locale.ts` | Static limits (amount cap, timers, rate limits, page sizes) and the one timezone / currency / locale (`APP_TIMEZONE`, default `Asia/Kolkata`). Editable commission rules are persisted in `CommissionSetting`, not hardcoded here |
 | `lib/money.ts` | Money is integer cents in code and `NUMERIC(12,2)` in the database. Strict parsing (no NaN, no third decimal, no exponent), half-up commission with integer arithmetic only |
 | `lib/period.ts` | The one date util: periods (`2026-09`, `2026`, `last7/30/90`, `this-month`, `last-month`, `this-year`, `all`, custom `from`/`to`) as half-open instant ranges whose edges are local midnights in `APP_TIMEZONE`; previous period; day/month spine. Golden-tested |
 | `lib/session.ts`, `middleware/auth.ts` | httpOnly SameSite=Lax cookie (`Secure` in production) holding a signed token with a session id. Sessions are rows: every request checks that the row exists and has not expired and that the token carries the user's current `tokenVersion`. Signing out deletes the row (a copied token dies at once, that browser's socket is dropped); a password reset or a deleted account ends all of a user's sessions. The role comes from the database, not the token |
@@ -55,6 +55,13 @@ routes  ->  services (rules, transactions)  ->  lib (money, period, session, soc
   the game row (`FOR UPDATE`), re-reads the state, checks each loser's credit limit under user row locks,
   and writes balances, ledger rows and the completed game together. Timer, admin resolve and retries can
   therefore race freely: exactly one pays.
+* **Commission settings are per type and prospective.** Admin updates to `CommissionSetting` are
+  validated and written with an append-only `CommissionSettingChange` record (admin id/name, time,
+  before/after). Game creation locks its type's setting `FOR SHARE` in the same transaction that creates
+  the game and copies the applicable rates and threshold to the game row. Settings updates lock that row
+  `FOR UPDATE`; a concurrent game start therefore snapshots one complete version. Settlement (including
+  admin resolution) uses only the game snapshot. Migration 0004 seeds the current defaults and backfills
+  existing games with the legacy rules before snapshot-based settlement runs.
 * **Ledger rule.** `GAME_WIN` is the gross stake and `COMMISSION` a separate negative row, so a player's
   rows always sum to their balance change (tested per game, per player and in total; wins equal losses,
   commission is the only money leaving the players).
@@ -94,7 +101,8 @@ counted), 600 API requests per minute per address, uploads and statements per us
 
 Prisma migrations are committed (`server/prisma/migrations`). `0001_init` is the schema the first live
 image created with `db push`; `0002` makes money exact and adds the settlement state, indexes and CHECK
-constraints. The container entrypoint runs `migrate.js` then `seed.js` and only then the app; any failure
+constraints; `0004_commission_settings` seeds editable per-game commission rules and backfills immutable
+snapshots for existing games. The container entrypoint runs `migrate.js` then `seed.js` and only then the app; any failure
 stops the start. `migrate.js` baselines a database that has the tables but no migration history (the
 first live database) by marking `0001_init` applied, then runs `prisma migrate deploy`. `db push` is not
 used anywhere.

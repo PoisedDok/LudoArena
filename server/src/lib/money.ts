@@ -1,4 +1,4 @@
-import { COMMISSION, MONEY } from '../config/limits'
+import { MONEY } from '../config/limits'
 
 /**
  * Money is handled as integer cents everywhere in application code. The database column is
@@ -57,13 +57,18 @@ export function shareOfCents(cents: number, bps: number): number {
   return Math.floor((cents * bps + 5_000) / 10_000)
 }
 
-/** Solo and Teams commission: 5% up to and including 500, 3% above. */
-export function tierCommissionCents(stakeCents: number): number {
-  const bps = stakeCents > COMMISSION.tierThresholdCents ? COMMISSION.lowRateBps : COMMISSION.highRateBps
+export interface TierCommissionRates {
+  tierThresholdCents: number
+  highRateBps: number
+  lowRateBps: number
+}
+
+export function tierCommissionCents(stakeCents: number, rules: TierCommissionRates): number {
+  const bps = stakeCents > rules.tierThresholdCents ? rules.lowRateBps : rules.highRateBps
   return shareOfCents(stakeCents, bps)
 }
 
-export function tierRatePercent(stakeCents: number): number {
-  const bps = stakeCents > COMMISSION.tierThresholdCents ? COMMISSION.lowRateBps : COMMISSION.highRateBps
+export function tierRatePercent(stakeCents: number, rules: TierCommissionRates): number {
+  const bps = stakeCents > rules.tierThresholdCents ? rules.lowRateBps : rules.highRateBps
   return bps / 100
 }

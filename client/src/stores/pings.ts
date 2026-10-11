@@ -21,6 +21,7 @@ export interface Ping {
   // live tracking fields (client-only, filled by socket events)
   _acceptedCount?: number
   _required?: number
+  _acceptedPlayers?: Array<{ userId: string; username: string }>
 }
 
 export interface PendingGame {
@@ -99,8 +100,15 @@ export const usePingsStore = defineStore('pings', () => {
       socket.on('ping:broadcast_update', ({ pingId, acceptedCount, required }: { pingId: string; acceptedCount: number; required: number }) => {
         updateCount(pingId, acceptedCount, required)
       })
-      socket.on('ping:partially_accepted', ({ pingId, acceptedCount, required }: { pingId: string; acceptedCount: number; required: number }) => {
+      socket.on('ping:partially_accepted', ({ pingId, acceptedCount, required, acceptedPlayers }: {
+        pingId: string
+        acceptedCount: number
+        required: number
+        acceptedPlayers: Array<{ userId: string; username: string }>
+      }) => {
         updateCount(pingId, acceptedCount, required)
+        const broadcast = liveBroadcasts.value.find((p) => p.id === pingId)
+        if (broadcast) broadcast._acceptedPlayers = acceptedPlayers
       })
       socket.on('ping:broadcast_resolved', ({ pingId }: { pingId: string }) => removeLiveBroadcast(pingId))
       socket.on('ping:accepted', ({ pingId, game }: { pingId: string; game: PendingGame }) => {

@@ -47,6 +47,7 @@ const navItems = [
   { to: '/admin/games',        label: 'Games',        icon: 'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z', exact: false },
   { to: '/admin/transactions', label: 'Transactions', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2', exact: false },
   { to: '/admin/deposits',     label: 'Deposits',     icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', exact: false },
+  { to: '/admin/settings',     label: 'Settings',     icon: 'M12 8a4 4 0 100 8 4 4 0 000-8zm8.2 4a8.2 8.2 0 01-.1 1.3l1.5 1.2-1.5 2.6-1.8-.7a8 8 0 01-2.2 1.3l-.3 1.9h-3l-.3-1.9a8 8 0 01-2.2-1.3l-1.8.7-1.5-2.6 1.5-1.2a8.2 8.2 0 010-2.6L7 9.5l1.5-2.6 1.8.7a8 8 0 012.2-1.3l.3-1.9h3l.3 1.9a8 8 0 012.2 1.3l1.8-.7 1.5 2.6-1.5 1.2c.1.4.1.8.1 1.3z', exact: false },
 ]
 
 function isActive(item: { to: string; exact: boolean }) {
