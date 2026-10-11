@@ -30,7 +30,9 @@ const shareBusyId = ref<string | null>(null)
 const shareError = ref('')
 const shareResult = ref<{ playerId: string; username: string; url: string; expiresAt: string } | null>(null)
 const shareExpired = ref(false)
+const shareCopied = ref(false)
 let shareExpiryTimer: ReturnType<typeof setTimeout> | undefined
+let shareCopiedTimer: ReturnType<typeof setTimeout> | undefined
 
 async function load() {
   loading.value = true
@@ -55,7 +57,10 @@ async function loadDeleted() {
   }
 }
 onMounted(() => { void load(); void loadDeleted() })
-onBeforeUnmount(() => { if (shareExpiryTimer) clearTimeout(shareExpiryTimer) })
+onBeforeUnmount(() => {
+  if (shareExpiryTimer) clearTimeout(shareExpiryTimer)
+  if (shareCopiedTimer) clearTimeout(shareCopiedTimer)
+})
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -205,6 +210,8 @@ async function shareLoginLink(player: Player) {
     url.hash = result.token
     shareResult.value = { playerId: player.id, username: player.username, url: url.toString(), expiresAt: result.expiresAt }
     shareExpired.value = false
+    shareCopied.value = false
+    if (shareCopiedTimer) clearTimeout(shareCopiedTimer)
     if (shareExpiryTimer) clearTimeout(shareExpiryTimer)
     shareExpiryTimer = setTimeout(() => { shareExpired.value = true }, Math.max(0, Date.parse(result.expiresAt) - Date.now()))
     await copyShareLink()
@@ -224,8 +231,12 @@ async function copyShareLink() {
   }
   try {
     await navigator.clipboard.writeText(shareResult.value.url)
+    shareCopied.value = true
+    if (shareCopiedTimer) clearTimeout(shareCopiedTimer)
+    shareCopiedTimer = setTimeout(() => { shareCopied.value = false }, 2_000)
     shareError.value = 'Sign-in link copied. It can be used once and expires in five minutes.'
   } catch {
+    shareCopied.value = false
     shareError.value = 'The link is ready below, but could not be copied automatically. Copy it manually.'
   }
 }
@@ -365,7 +376,19 @@ async function loadLedger(player: Player) {
             Creating another link invalidates this one.
           </p>
         </div>
-        <button type="button" class="btn-ghost btn-sm flex-shrink-0" :disabled="shareExpired" @click="copyShareLink">Copy link</button>
+        <button
+          type="button"
+          class="btn-ghost btn-sm flex-shrink-0 inline-flex items-center gap-1.5"
+          :class="shareCopied ? 'text-active' : ''"
+          :disabled="shareExpired"
+          :aria-label="shareCopied ? 'Link copied' : 'Copy link'"
+          @click="copyShareLink"
+        >
+          <svg v-if="shareCopied" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m5 12 4 4L19 6" />
+          </svg>
+          {{ shareCopied ? 'Copied' : 'Copy link' }}
+        </button>
       </div>
       <label class="sr-only" for="player-share-link">Share sign-in link</label>
       <input id="player-share-link" class="input text-xs" readonly :value="shareResult.url" @focus="($event.target as HTMLInputElement).select()" />

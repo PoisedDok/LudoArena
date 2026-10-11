@@ -57,6 +57,7 @@ async function mountDashboard() {
 beforeEach(() => {
   setActivePinia(createPinia())
   Object.values(apiMock).forEach((fn) => fn.mockReset())
+  vi.unstubAllGlobals()
 })
 
 describe('contract guard', () => {
@@ -123,6 +124,8 @@ describe('AdminPlayersView share login link', () => {
     apiMock.post.mockResolvedValue({
       data: { data: { token, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() } },
     })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
     const wrapper = mount(AdminPlayersView)
     await flushPromises()
 
@@ -132,10 +135,12 @@ describe('AdminPlayersView share login link', () => {
     await flushPromises()
 
     expect(apiMock.post).toHaveBeenCalledWith('/players/player-1/share-link')
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/share-login#${token}`)
     const linkInput = wrapper.get('#player-share-link').element as HTMLInputElement
     expect(linkInput.value).toBe(`${window.location.origin}/share-login#${token}`)
     expect(wrapper.text()).toContain('Single-use')
     expect(wrapper.text()).toContain('30 days')
+    expect(wrapper.get('button[aria-label="Link copied"]').text()).toContain('Copied')
     wrapper.unmount()
   })
 })
