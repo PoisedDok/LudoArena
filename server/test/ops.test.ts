@@ -21,7 +21,7 @@ describe('admin seed', () => {
     const password = randomSecret()
     const first = await ensureAdmin('owner_1', password)
     expect(first).toEqual({ created: true, username: 'owner_1' })
-    const row = await prisma.user.findUniqueOrThrow({ where: { username: 'owner_1' } })
+    const row = await prisma.user.findFirstOrThrow({ where: { username: 'owner_1' } })
     expect(row.role).toBe('ADMIN')
     expect(await bcrypt.compare(password, row.passwordHash)).toBe(true)
 
@@ -151,6 +151,8 @@ describe('migrate script', () => {
         '0003_sessions',
         '0004_commission_settings',
         '0005_player_archive',
+        '0006_reuse_purged_usernames',
+        '0007_player_share_login_links',
       ])
       const user = await client.query(`SELECT "balance"::text AS balance, "tokenVersion" FROM "User" WHERE "id" = 'legacy1'`)
       expect(user.rows[0]).toEqual({ balance: '12.50', tokenVersion: 0 })

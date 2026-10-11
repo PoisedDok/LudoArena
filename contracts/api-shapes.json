@@ -77,7 +77,9 @@
   },
   "endpoints": {
     "auth.login": "@SessionUser",
+    "auth.shareLogin": "@SessionUser",
     "auth.me": "@SessionUser",
+    "players.shareLoginLink": { "token": "string", "expiresAt": "string" },
     "players.list.public": { "$each": "@PublicPlayer" },
     "players.list.admin": { "$each": "@FullPlayer" },
     "players.deleted": { "$each": "@DeletedPlayer" },

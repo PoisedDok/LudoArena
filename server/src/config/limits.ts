@@ -16,6 +16,7 @@ export const GAME = {
 
 export const AUTH = {
   rememberTtlSeconds: 30 * 24 * 60 * 60,
+  shareLoginLinkTtlSeconds: 5 * 60,
   sessionTtlSeconds: 24 * 60 * 60,
   loginWindowMs: 15 * 60 * 1000,
   loginMaxFailuresPerIp: 10,

@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { randomBytes } from 'crypto'
 import { hashPassword } from '../lib/password'
+import { hashShareLoginToken } from '../lib/session'
 import prisma, { lockUsers } from '../lib/prisma'
 import { requireAuth, requireAdmin, requirePlayableAccount, AuthRequest } from '../middleware/auth'
 import { idempotent } from '../middleware/idempotency'
@@ -62,6 +63,7 @@ async function assertIdentityFree(username: string | undefined, phone: string | 
   const clash = await prisma.user.findFirst({
     where: {
       id: exceptId ? { not: exceptId } : undefined,
+      permanentlyPurgedAt: null,
       OR: values.flatMap((v) => [{ username: { equals: v, mode: 'insensitive' as const } }, { phone: v }]),
     },
     select: { username: true },
@@ -123,6 +125,30 @@ export function playersRouter(): Router {
     res.json({ data: user })
   })
 
+  // POST /api/players/:id/share-link — issue a fresh, single-use 5-minute login link.
+  router.post('/:id/share-link', requireAdmin, async (req: AuthRequest<IdParams>, res) => {
+    const token = randomBytes(32).toString('hex')
+    const tokenHash = hashShareLoginToken(token)
+    const expiresAt = await prisma.$transaction(async (tx) => {
+      await lockUsers(tx, [req.params.id])
+      const user = await tx.user.findUnique({
+        where: { id: req.params.id },
+        select: { role: true, deletedAt: true, permanentlyPurgedAt: true },
+      })
+      if (!user || user.role !== Role.PLAYER) throw notFound('Player not found')
+      if (user.deletedAt || user.permanentlyPurgedAt) throw conflict('Restore this player before creating a share link')
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + AUTH.shareLoginLinkTtlSeconds * 1000)
+      await tx.shareLoginLink.upsert({
+        where: { userId: req.params.id },
+        create: { userId: req.params.id, tokenHash, expiresAt },
+        update: { tokenHash, expiresAt, consumedAt: null, createdAt: now },
+      })
+      return expiresAt
+    })
+    res.json({ data: { token, expiresAt: expiresAt.toISOString() } })
+  })
+
   // POST /api/players
   router.post('/', requireAdmin, idempotent, async (req: AuthRequest, res) => {
     const input = body(req)
@@ -135,29 +161,34 @@ export function playersRouter(): Router {
     await assertIdentityFree(username, phone)
 
     const passwordHash = await hashPassword(password)
-    const user = await prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
-          username, phone, passwordHash,
-          balance: centsToDecimal(balance),
-          creditLimit: centsToDecimal(creditLimit),
-          spendLimit: centsToDecimal(spendLimit),
-        },
-        select: fullUserFields,
-      })
-      if (balance !== 0) {
-        await tx.transaction.create({
+    try {
+      const user = await prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
           data: {
-            userId: created.id,
-            amount: centsToDecimal(balance),
-            type: balance > 0 ? TransactionType.ADMIN_CREDIT : TransactionType.ADMIN_DEBIT,
-            description: 'Opening balance',
+            username, phone, passwordHash,
+            balance: centsToDecimal(balance),
+            creditLimit: centsToDecimal(creditLimit),
+            spendLimit: centsToDecimal(spendLimit),
           },
+          select: fullUserFields,
         })
-      }
-      return created
-    })
-    res.status(201).json({ data: user })
+        if (balance !== 0) {
+          await tx.transaction.create({
+            data: {
+              userId: created.id,
+              amount: centsToDecimal(balance),
+              type: balance > 0 ? TransactionType.ADMIN_CREDIT : TransactionType.ADMIN_DEBIT,
+              description: 'Opening balance',
+            },
+          })
+        }
+        return created
+      })
+      res.status(201).json({ data: user })
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') throw conflict('That username or phone number is already in use')
+      throw error
+    }
   })
 
   // PUT /api/players/:id
@@ -196,7 +227,9 @@ export function playersRouter(): Router {
       const current = await tx.user.findUnique({ where: { id: req.params.id }, select: { deletedAt: true } })
       if (!current) throw notFound('Player not found')
       if (current.deletedAt) throw conflict('Restore this player before editing their account')
-      return tx.user.update({ where: { id: req.params.id }, data, select: fullUserFields })
+      const updated = await tx.user.update({ where: { id: req.params.id }, data, select: fullUserFields })
+      if (passwordChanged) await tx.shareLoginLink.deleteMany({ where: { userId: req.params.id } })
+      return updated
     })
     // A reset ends every session of that user (the version bump refuses old tokens, the rows go too),
     // sockets included.
@@ -309,6 +342,7 @@ export function playersRouter(): Router {
         data: { deletedAt: new Date(), isActive: false },
         select: { username: true, deletedAt: true },
       })
+      await tx.shareLoginLink.deleteMany({ where: { userId: req.params.id } })
       return { openPings, username: archivedUser.username, deletedAt: archivedUser.deletedAt! }
     })
 
@@ -370,6 +404,7 @@ export function playersRouter(): Router {
 
       await tx.session.deleteMany({ where: { userId: req.params.id } })
       await tx.idempotencyKey.deleteMany({ where: { userId: req.params.id } })
+      await tx.shareLoginLink.deleteMany({ where: { userId: req.params.id } })
       await tx.user.update({
         where: { id: req.params.id },
         data: {

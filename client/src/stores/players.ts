@@ -47,5 +47,10 @@ export const usePlayersStore = defineStore('players', () => {
     if (p) p.isActive = isActive
   }
 
-  return { players, loading, error, fetchPlayers, updateStatus }
+  function clearForAccountSwitch() {
+    players.value = []
+    error.value = ''
+  }
+
+  return { players, loading, error, fetchPlayers, updateStatus, clearForAccountSwitch }
 })

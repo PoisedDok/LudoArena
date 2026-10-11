@@ -298,11 +298,13 @@ Screenshot: id, gameId, userId, filename, uploadedAt
 
 ```
 POST   /api/auth/login
+POST   /api/auth/share-login           # redeem an admin-issued one-time 5-minute link; creates a 30-day session
 POST   /api/auth/logout
 GET    /api/auth/me
 
 GET    /api/players                     # all players (admin) or public list (player)
 POST   /api/players                     # admin: create player
+POST   /api/players/:id/share-link      # admin: rotate a single-use 5-minute player sign-in link
 GET    /api/players/:id
 PUT    /api/players/:id                 # admin: edit player
 PATCH  /api/players/:id/active         # player: toggle own active status
@@ -328,6 +330,11 @@ GET    /api/admin/transactions         # full ledger
 GET    /api/admin/games                # all games with detail
 PATCH  /api/admin/games/:id/resolve    # resolve disputed game
 ```
+
+Player sign-in links contain a 256-bit bearer token in the URL fragment so it is not sent to the web
+server in the page request or referrer. The database stores only its SHA-256 hash. A newly generated
+link invalidates the previous link for that player; successful redemption consumes it atomically,
+and archiving the player or changing their password revokes it. The link expires after five minutes.
 
 ---
 

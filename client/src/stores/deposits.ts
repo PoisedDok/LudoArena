@@ -100,9 +100,16 @@ export const useDepositsStore = defineStore('deposits', () => {
     })
   }
 
+  function clearForAccountSwitch() {
+    myDeposits.value = []
+    adminDeposits.value = []
+    adminError.value = ''
+    adminFilter = undefined
+  }
+
   return {
     myDeposits, adminDeposits, adminLoading, adminError,
     fetchMyDeposits, submitDeposit, fetchAdminDeposits, reviewDeposit,
-    bindSocketEvents, bindAdminSocketEvents,
+    clearForAccountSwitch, bindSocketEvents, bindAdminSocketEvents,
   }
 })

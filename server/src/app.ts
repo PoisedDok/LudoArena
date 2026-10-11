@@ -35,7 +35,7 @@ export interface BuiltApp {
 }
 
 /** Public routes, by "METHOD path". Everything else must answer 401 without a session (tested). */
-export const PUBLIC_ROUTES = new Set(['POST /api/auth/login', 'POST /api/auth/logout'])
+export const PUBLIC_ROUTES = new Set(['POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/share-login'])
 
 export function createApp(options: AppOptions = {}): BuiltApp {
   const env = getEnv()

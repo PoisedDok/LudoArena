@@ -5,6 +5,7 @@ import { bindOnce, connectSocket, disconnectSocket, onResync } from '../lib/sock
 import { expectShape } from '../lib/contract'
 import { usePlayersStore } from './players'
 import { usePingsStore } from './pings'
+import { useGamesStore } from './games'
 
 export interface User {
   id: string
@@ -91,6 +92,30 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function loginWithShareLink(token: string) {
+    loading.value = true
+    const previousUserId = user.value?.id
+    disconnectSocket()
+    try {
+      const { data } = await api.post('/auth/share-login', { token })
+      user.value = expectShape<User>('auth.shareLogin', data.data)
+      if (previousUserId && previousUserId !== user.value.id) {
+        usePlayersStore().clearForAccountSwitch()
+        usePingsStore().clearActivity()
+        useGamesStore().clearForAccountSwitch()
+        const { useDepositsStore } = await import('./deposits')
+        useDepositsStore().clearForAccountSwitch()
+      }
+      sessionExpired.value = false
+      startRealtime()
+    } catch (error) {
+      await fetchMe()
+      throw error
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function init() {
     await fetchMe()
   }
@@ -112,5 +137,5 @@ export const useAuthStore = defineStore('auth', () => {
     disconnectSocket()
   }
 
-  return { user, loading, sessionExpired, login, logout, init, fetchMe, discardSession }
+  return { user, loading, sessionExpired, login, loginWithShareLink, logout, init, fetchMe, discardSession }
 })

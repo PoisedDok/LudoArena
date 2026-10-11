@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/auth'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/share-login', name: 'share-login', component: () => import('../views/ShareLoginView.vue'), meta: { public: true, shareLogin: true } },
     { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
     {
       path: '/',
@@ -42,6 +43,8 @@ router.beforeEach(async (to) => {
     sessionChecked = true
     await auth.init()
   }
+
+  if (to.meta.shareLogin) return true
 
   // Redirect already-authenticated users away from /login
   if (to.meta.public) {

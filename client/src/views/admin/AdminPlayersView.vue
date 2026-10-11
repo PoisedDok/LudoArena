@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import api, { idempotencyKey, withKey } from '../../lib/api'
 import { errorMessage } from '../../lib/errors'
 import { amountTone, fileUrl, formatAmount, formatDateTime, formatPlain, txBadgeClass, txTypeLabel } from '../../lib/format'
@@ -26,6 +26,11 @@ const loading = ref(true)
 const loadError = ref('')
 const deletedLoadError = ref('')
 const search = ref('')
+const shareBusyId = ref<string | null>(null)
+const shareError = ref('')
+const shareResult = ref<{ playerId: string; username: string; url: string; expiresAt: string } | null>(null)
+const shareExpired = ref(false)
+let shareExpiryTimer: ReturnType<typeof setTimeout> | undefined
 
 async function load() {
   loading.value = true
@@ -50,6 +55,7 @@ async function loadDeleted() {
   }
 }
 onMounted(() => { void load(); void loadDeleted() })
+onBeforeUnmount(() => { if (shareExpiryTimer) clearTimeout(shareExpiryTimer) })
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -188,6 +194,42 @@ async function restorePlayer(player: DeletedPlayer) {
   }
 }
 
+async function shareLoginLink(player: Player) {
+  if (shareBusyId.value) return
+  shareBusyId.value = player.id
+  shareError.value = ''
+  try {
+    const { data } = await api.post(`/players/${player.id}/share-link`)
+    const result = expectShape<{ token: string; expiresAt: string }>('players.shareLoginLink', data.data)
+    const url = new URL('/share-login', window.location.origin)
+    url.hash = result.token
+    shareResult.value = { playerId: player.id, username: player.username, url: url.toString(), expiresAt: result.expiresAt }
+    shareExpired.value = false
+    if (shareExpiryTimer) clearTimeout(shareExpiryTimer)
+    shareExpiryTimer = setTimeout(() => { shareExpired.value = true }, Math.max(0, Date.parse(result.expiresAt) - Date.now()))
+    await copyShareLink()
+  } catch (e) {
+    shareError.value = errorMessage(e, 'Could not create the sign-in link.')
+  } finally {
+    shareBusyId.value = null
+  }
+}
+
+async function copyShareLink() {
+  if (!shareResult.value) return
+  if (Date.parse(shareResult.value.expiresAt) <= Date.now()) {
+    shareExpired.value = true
+    shareError.value = 'This link has expired. Generate a new one to sign in.'
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(shareResult.value.url)
+    shareError.value = 'Sign-in link copied. It can be used once and expires in five minutes.'
+  } catch {
+    shareError.value = 'The link is ready below, but could not be copied automatically. Copy it manually.'
+  }
+}
+
 async function permanentlyCleanPlayer() {
   if (busy.value || !target.value) return
   busy.value = true
@@ -256,10 +298,13 @@ async function loadLedger(player: Player) {
               <div class="text-[11px] text-text-muted">Limit {{ formatPlain(p.creditLimit) }} · Max {{ formatPlain(p.spendLimit) }}</div>
             </div>
           </div>
-          <div class="grid grid-cols-3 gap-2 border-t border-border pt-3">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 border-t border-border pt-3">
             <button type="button" class="btn-ghost btn-sm text-accent" @click="open('balance', p)">Balance</button>
             <button type="button" class="btn-ghost btn-sm" @click="open('ledger', p)">Ledger</button>
             <button type="button" class="btn-ghost btn-sm" @click="open('edit', p)">Edit</button>
+            <button type="button" class="btn-ghost btn-sm" :disabled="shareBusyId !== null" @click="shareLoginLink(p)">
+              {{ shareBusyId === p.id ? 'Creating…' : shareResult?.playerId === p.id ? 'Rotate link' : 'Share login' }}
+            </button>
           </div>
           <div class="flex items-center justify-between gap-2">
             <StatementButton :player-id="p.id" :player-name="p.username" variant="link" />
@@ -297,6 +342,9 @@ async function loadLedger(player: Player) {
                   <button type="button" class="text-xs text-accent hover:text-amber-400" @click="open('balance', p)">Balance</button>
                   <button type="button" class="text-xs text-text-muted hover:text-text-primary" @click="open('ledger', p)">Ledger</button>
                   <StatementButton :player-id="p.id" :player-name="p.username" variant="link" />
+                  <button type="button" class="text-xs text-accent hover:text-amber-400" :disabled="shareBusyId !== null" @click="shareLoginLink(p)">
+                    {{ shareBusyId === p.id ? 'Creating…' : shareResult?.playerId === p.id ? 'Rotate link' : 'Share login' }}
+                  </button>
                   <button type="button" class="text-xs text-text-muted hover:text-text-primary" @click="open('edit', p)">Edit</button>
                   <button type="button" class="text-xs text-danger hover:text-red-400" @click="open('delete', p)">Delete</button>
                 </div>
@@ -306,6 +354,24 @@ async function loadLedger(player: Player) {
         </table>
       </div>
     </StateBlock>
+
+    <section v-if="shareResult" class="card mt-4 space-y-3" aria-live="polite">
+      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div class="min-w-0">
+          <h2 class="font-medium">Sign-in link for {{ shareResult.username }}</h2>
+          <p v-if="shareExpired" class="field-error mt-1" role="status">This link has expired. Generate a new one before sharing.</p>
+          <p v-else class="text-xs text-text-muted mt-1">
+            Single-use; expires {{ formatDateTime(shareResult.expiresAt) }}. Anyone with it can sign in and stay signed in on that device for up to 30 days.
+            Creating another link invalidates this one.
+          </p>
+        </div>
+        <button type="button" class="btn-ghost btn-sm flex-shrink-0" :disabled="shareExpired" @click="copyShareLink">Copy link</button>
+      </div>
+      <label class="sr-only" for="player-share-link">Share sign-in link</label>
+      <input id="player-share-link" class="input text-xs" readonly :value="shareResult.url" @focus="($event.target as HTMLInputElement).select()" />
+      <p v-if="shareError" class="text-xs text-text-muted" role="status">{{ shareError }}</p>
+    </section>
+    <p v-else-if="shareError" class="field-error mt-4" role="alert">{{ shareError }}</p>
 
     <details class="card">
       <summary class="cursor-pointer font-medium">Deleted players ({{ deletedPlayers.length }})</summary>

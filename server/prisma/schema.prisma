@@ -12,7 +12,7 @@ datasource db {
 
 model User {
   id           String  @id @default(cuid())
-  username     String  @unique
+  username     String
   phone        String? @unique
   passwordHash String
   role         Role    @default(PLAYER)
@@ -28,6 +28,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   sessions        Session[]
+  shareLoginLink  ShareLoginLink?
   sentPings       Ping[]           @relation("SentPings")
   pingRecvd       PingRecipient[]
   gamePlayers     GamePlayer[]
@@ -174,6 +175,18 @@ model Session {
   expiresAt DateTime
 
   @@index([userId])
+  @@index([expiresAt])
+}
+
+model ShareLoginLink {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @unique
+  tokenHash String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  consumedAt DateTime?
+
   @@index([expiresAt])
 }
 

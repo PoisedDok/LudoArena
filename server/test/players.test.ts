@@ -62,6 +62,34 @@ describe('player management', () => {
     expect((await admin.post('/api/players').send({ username: 'other_person', phone: '+919876543210', password })).status).toBe(409)
   })
 
+  it('issues a fresh 5-minute login link only for an active player account', async () => {
+    const admin = await login(app, await createUser({ role: 'ADMIN' }))
+    const player = await createUser()
+    const otherPlayer = await createUser()
+    const playerAgent = await login(app, player)
+    expect((await playerAgent.post(`/api/players/${player.id}/share-link`)).status).toBe(403)
+
+    const first = await admin.post(`/api/players/${player.id}/share-link`)
+    expect(first.status).toBe(200)
+    expect(first.body.data.token).toMatch(/^[a-f0-9]{64}$/)
+    const firstExpiry = Date.parse(first.body.data.expiresAt)
+    expect(firstExpiry - Date.now()).toBeGreaterThan(4 * 60 * 1000)
+    expect(firstExpiry - Date.now()).toBeLessThanOrEqual(5 * 60 * 1000)
+    const stored = await prisma.shareLoginLink.findUniqueOrThrow({ where: { userId: player.id } })
+    expect(stored.tokenHash).not.toBe(first.body.data.token)
+    expect(stored.consumedAt).toBeNull()
+
+    const rotated = await admin.post(`/api/players/${player.id}/share-link`)
+    expect(rotated.status).toBe(200)
+    expect(rotated.body.data.token).not.toBe(first.body.data.token)
+    expect((await prisma.shareLoginLink.findUniqueOrThrow({ where: { userId: player.id } })).tokenHash).not.toBe(stored.tokenHash)
+
+    expect((await admin.delete(`/api/players/${player.id}`)).status).toBe(200)
+    expect(await prisma.shareLoginLink.findUnique({ where: { userId: player.id } })).toBeNull()
+    expect((await admin.post(`/api/players/${player.id}/share-link`)).status).toBe(409)
+    expect((await admin.post(`/api/players/${otherPlayer.id}/share-link`)).status).toBe(200)
+  })
+
   it('edits limits and identity; unknown ids are 404 and clashes 409', async () => {
     const admin = await login(app, await createUser({ role: 'ADMIN' }))
     const [a, b] = await Promise.all([createUser(), createUser()])
@@ -142,6 +170,8 @@ describe('player management', () => {
     expect((await admin.get('/api/players/deleted')).body.data.map((u: { id: string }) => u.id)).not.toContain(a.id)
     expect((await admin.get('/api/players')).body.data.find((u: { id: string }) => u.id === a.id)).toMatchObject({ isActive: false })
     expect((await admin.delete(`/api/players/${a.id}`)).status).toBe(200)
+    const replacement = { ...a, password: randomSecret() }
+    expect((await admin.post('/api/players').send(replacement)).status).toBe(409)
     expect((await admin.delete(`/api/players/${a.id}/permanent-cleanup`)).status).toBe(200)
     expect((await admin.get('/api/players/deleted')).body.data.map((u: { id: string }) => u.id)).not.toContain(a.id)
     expect(await prisma.gamePlayer.count({ where: { userId: a.id } })).toBe(1)
@@ -156,6 +186,13 @@ describe('player management', () => {
     expect(purged.username).toBe(a.username)
     expect(await prisma.session.count({ where: { userId: a.id } })).toBe(0)
     await expect(login(app, a)).rejects.toThrow(/login failed/)
+    const replacementResponse = await admin.post('/api/players').send(replacement)
+    expect(replacementResponse.status).toBe(201)
+    expect(replacementResponse.body.data.username).toBe(a.username)
+    const replacementAgent = await login(app, replacement)
+    expect((await replacementAgent.get('/api/auth/me')).body.data.id).toBe(replacementResponse.body.data.id)
+    await expect(login(app, a)).rejects.toThrow(/login failed/)
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: a.id } })).username).toBe(a.username)
     expect((await admin.post(`/api/players/${a.id}/restore`)).status).toBe(409)
   })
 

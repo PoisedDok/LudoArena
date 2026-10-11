@@ -72,6 +72,51 @@ describe('login', () => {
     expect(await ttl(false)).toBe(24 * 3600)
   })
 
+  it('share links rotate, expire, grant a remembered session once, and cannot be replayed', async () => {
+    const { app } = createApp()
+    const admin = await login(app, await createUser({ role: 'ADMIN' }))
+    const player = await createUser()
+    const createLink = async () => {
+      const res = await admin.post(`/api/players/${player.id}/share-link`)
+      expect(res.status).toBe(200)
+      return res.body.data as { token: string; expiresAt: string }
+    }
+
+    const oldLink = await createLink()
+    const activeLink = await createLink()
+    const recipient = request.agent(app)
+    expect((await recipient.post('/api/auth/share-login').send({ token: oldLink.token })).status).toBe(401)
+
+    const signedIn = await recipient.post('/api/auth/share-login').send({ token: activeLink.token })
+    expect(signedIn.status).toBe(200)
+    expect(signedIn.body.data.id).toBe(player.id)
+    expect(cookieHeader(signedIn)[0]).toMatch(/Max-Age=2592000/)
+    expect((await recipient.get('/api/auth/me')).body.data.id).toBe(player.id)
+    expect((await recipient.post('/api/auth/share-login').send({ token: activeLink.token })).status).toBe(401)
+    expect((await prisma.shareLoginLink.findUniqueOrThrow({ where: { userId: player.id } })).consumedAt).toBeInstanceOf(Date)
+
+    const expired = await createLink()
+    await prisma.shareLoginLink.update({
+      where: { userId: player.id },
+      data: { expiresAt: new Date(Date.now() - 1) },
+    })
+    expect((await request(app).post('/api/auth/share-login').send({ token: expired.token })).status).toBe(401)
+    expect(Date.parse(activeLink.expiresAt)).toBeGreaterThan(Date.now())
+  })
+
+  it('redeeming one share link concurrently creates exactly one session', async () => {
+    const { app } = createApp()
+    const admin = await login(app, await createUser({ role: 'ADMIN' }))
+    const player = await createUser()
+    const link = await admin.post(`/api/players/${player.id}/share-link`)
+    const attempts = await Promise.all([
+      request(app).post('/api/auth/share-login').send({ token: link.body.data.token }),
+      request(app).post('/api/auth/share-login').send({ token: link.body.data.token }),
+    ])
+    expect(attempts.map((attempt) => attempt.status).sort()).toEqual([200, 401])
+    expect(await prisma.session.count({ where: { userId: player.id } })).toBe(1)
+  })
+
   it('only failed attempts count towards the limit, and the limit is per IP', async () => {
     const { app } = createApp()
     const user = await createUser()
@@ -201,14 +246,18 @@ describe('sessions', () => {
     const adminAgent = await login(app, admin)
     const player = await createUser()
     const token = await rawToken(app, player)
+    const shareLink = await adminAgent.post(`/api/players/${player.id}/share-link`)
     expect((await replay(app, token)).status).toBe(200)
     expect((await adminAgent.put(`/api/players/${player.id}`).send({ password: randomSecret() })).status).toBe(200)
     expect((await replay(app, token)).status).toBe(401)
+    expect((await request(app).post('/api/auth/share-login').send({ token: shareLink.body.data.token })).status).toBe(401)
 
     const doomed = await createUser()
     const doomedToken = await rawToken(app, doomed)
+    const doomedShareLink = await adminAgent.post(`/api/players/${doomed.id}/share-link`)
     expect((await adminAgent.delete(`/api/players/${doomed.id}`)).status).toBe(200)
     expect((await replay(app, doomedToken)).status).toBe(200)
+    expect((await request(app).post('/api/auth/share-login').send({ token: doomedShareLink.body.data.token })).status).toBe(401)
     expect((await adminAgent.delete(`/api/players/${doomed.id}/permanent-cleanup`)).status).toBe(200)
     expect((await replay(app, doomedToken)).status).toBe(401)
     expect(await prisma.session.count({ where: { userId: doomed.id } })).toBe(0)

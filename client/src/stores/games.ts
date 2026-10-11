@@ -91,6 +91,12 @@ export const useGamesStore = defineStore('games', () => {
     if (activeGame.value?.id === gameId) activeGame.value = { ...activeGame.value, ...update }
   }
 
+  function clearForAccountSwitch() {
+    games.value = []
+    activeGame.value = null
+    error.value = ''
+  }
+
   function bindSocketEvents() {
     bindOnce('games', (socket) => {
       socket.on('game:roomcode', ({ gameId, ludoRoomCode }: { gameId: string; ludoRoomCode: string }) => patch(gameId, { ludoRoomCode }))
@@ -120,5 +126,5 @@ export const useGamesStore = defineStore('games', () => {
     })
   }
 
-  return { games, activeGame, loading, error, fetchGames, fetchGame, setRoomCode, markDone, uploadScreenshot, confirmResult, retractVote, bindSocketEvents }
+  return { games, activeGame, loading, error, fetchGames, fetchGame, setRoomCode, markDone, uploadScreenshot, confirmResult, retractVote, clearForAccountSwitch, bindSocketEvents }
 })

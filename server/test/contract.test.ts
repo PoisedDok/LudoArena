@@ -97,6 +97,12 @@ describe('API and socket payloads match contracts/api-shapes.json', () => {
     const adminList = (await A.get('/api/players')).body.data
     expect(adminList.length).toBeGreaterThan(1)
     conforms('players.list.admin', adminList)
+    const shareLink = await A.post(`/api/players/${p1.id}/share-link`)
+    expect(shareLink.status).toBe(200)
+    conforms('players.shareLoginLink', shareLink.body.data)
+    const shareLogin = await request(app).post('/api/auth/share-login').send({ token: shareLink.body.data.token })
+    expect(shareLogin.status).toBe(200)
+    conforms('auth.shareLogin', shareLogin.body.data)
     conforms('players.detail.full', (await P1.get(`/api/players/${p1.id}`)).body.data)
 
     // direct ping -> accept -> game

@@ -1,4 +1,5 @@
 import type { Response } from 'express'
+import { createHash } from 'crypto'
 import prisma, { lockUsers } from './prisma'
 import { signToken, verifyToken } from './jwt'
 import { getEnv } from '../config/env'
@@ -6,6 +7,7 @@ import { AUTH } from '../config/limits'
 import { unauthorized } from './errors'
 
 export const COOKIE_NAME = 'token'
+const INVALID_SHARE_LINK = 'Invalid or expired share link'
 
 export interface SessionUser {
   userId: string
@@ -60,6 +62,74 @@ export async function issueSession(
     // Without "remember me" the cookie is a browser-session cookie; the token still expires after a day.
     ...(remember ? { maxAge: ttl * 1000 } : {}),
   })
+}
+
+export async function redeemShareLoginToken(res: Response, tokenHash: string) {
+  const candidate = await prisma.shareLoginLink.findUnique({
+    where: { tokenHash },
+    select: { id: true, userId: true },
+  })
+  if (!candidate) throw unauthorized(INVALID_SHARE_LINK)
+
+  const { user, session } = await prisma.$transaction(async (tx) => {
+    await lockUsers(tx, [candidate.userId])
+    await tx.$queryRaw`SELECT "id" FROM "ShareLoginLink" WHERE "id" = ${candidate.id} FOR UPDATE`
+    const now = new Date()
+    const link = await tx.shareLoginLink.findUnique({ where: { id: candidate.id } })
+    if (!link || link.tokenHash !== tokenHash || link.consumedAt || link.expiresAt.getTime() <= now.getTime()) {
+      throw unauthorized(INVALID_SHARE_LINK)
+    }
+
+    const user = await tx.user.findUnique({
+      where: { id: link.userId },
+      select: {
+        id: true,
+        username: true,
+        phone: true,
+        role: true,
+        balance: true,
+        isActive: true,
+        deletedAt: true,
+        permanentlyPurgedAt: true,
+        creditLimit: true,
+        spendLimit: true,
+        tokenVersion: true,
+      },
+    })
+    if (!user || user.role !== 'PLAYER' || user.deletedAt || user.permanentlyPurgedAt) {
+      throw unauthorized(INVALID_SHARE_LINK)
+    }
+
+    const consumed = await tx.shareLoginLink.updateMany({
+      where: { id: link.id, tokenHash, consumedAt: null, expiresAt: { gt: now } },
+      data: { consumedAt: now },
+    })
+    if (consumed.count !== 1) throw unauthorized(INVALID_SHARE_LINK)
+
+    const session = await tx.session.create({
+      data: {
+        userId: user.id,
+        expiresAt: new Date(now.getTime() + AUTH.rememberTtlSeconds * 1000),
+      },
+      select: { id: true },
+    })
+    return { user, session }
+  })
+
+  const ttl = AUTH.rememberTtlSeconds
+  const signedToken = signToken({ userId: user.id, role: user.role, tv: user.tokenVersion, sid: session.id }, ttl)
+  res.cookie(COOKIE_NAME, signedToken, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: getEnv().isProduction,
+    path: '/',
+    maxAge: ttl * 1000,
+  })
+  return user
+}
+
+export function hashShareLoginToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
 }
 
 export function clearSession(res: Response): void {

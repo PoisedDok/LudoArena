@@ -4,7 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { expectShape, ContractError } from '../lib/contract'
 import AdminDashboardView from './admin/AdminDashboardView.vue'
+import AdminPlayersView from './admin/AdminPlayersView.vue'
 import AdminSettingsView from './admin/AdminSettingsView.vue'
+import ShareLoginView from './ShareLoginView.vue'
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), put: vi.fn() }))
 vi.mock('../lib/api', () => ({ default: apiMock, setUnauthorizedHandler: vi.fn(), idempotencyKey: () => 'k', withKey: () => ({}) }))
@@ -95,6 +97,7 @@ describe('AdminSettingsView', () => {
     expect(apiMock.put).toHaveBeenCalledWith('/admin/settings/commission/ONE_V_ONE', {
       tierThresholdCents: 50_000, highRateBps: 625, lowRateBps: 300,
     })
+
     expect(wrapper.text()).toContain('Commission settings saved.')
     expect(apiMock.put).toHaveBeenCalledTimes(1)
   })
@@ -105,6 +108,64 @@ describe('AdminSettingsView', () => {
     expect(wrapper.get('[role=alert]').text()).toContain('Could not load commission settings.')
     expect(wrapper.text()).not.toContain('Solo (1v1)')
     expect(wrapper.text()).toContain('Try again')
+  })
+})
+
+describe('AdminPlayersView share login link', () => {
+  it('creates and exposes a short-lived link with the token only in the URL fragment', async () => {
+    const player = {
+      id: 'player-1', username: 'asha', phone: null, role: 'PLAYER', balance: 0,
+      creditLimit: 500, spendLimit: 1000, isActive: false,
+      createdAt: '2026-10-11T10:00:00.000Z', updatedAt: '2026-10-11T10:00:00.000Z',
+    }
+    apiMock.get.mockImplementation((url: string) => Promise.resolve({ data: { data: url === '/players' ? [player] : [] } }))
+    const token = 'a'.repeat(64)
+    apiMock.post.mockResolvedValue({
+      data: { data: { token, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() } },
+    })
+    const wrapper = mount(AdminPlayersView)
+    await flushPromises()
+
+    const shareButton = wrapper.findAll('button').find((button) => button.text().includes('Share login'))
+    if (!shareButton) throw new Error('Share login button was not rendered')
+    await shareButton.trigger('click')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/players/player-1/share-link')
+    const linkInput = wrapper.get('#player-share-link').element as HTMLInputElement
+    expect(linkInput.value).toBe(`${window.location.origin}/share-login#${token}`)
+    expect(wrapper.text()).toContain('Single-use')
+    expect(wrapper.text()).toContain('30 days')
+    wrapper.unmount()
+  })
+})
+
+describe('ShareLoginView', () => {
+  it('redeems the fragment token, signs in, and redirects to the player home', async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    const token = 'b'.repeat(64)
+    window.history.replaceState({}, '', `/share-login#${token}`)
+    const user = {
+      id: 'player-1', username: 'asha', phone: null, role: 'PLAYER', balance: 0,
+      isActive: false, creditLimit: 500, spendLimit: 1000, deletedAt: null,
+    }
+    apiMock.post.mockResolvedValue({ data: { data: user } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/share-login', name: 'share-login', component: ShareLoginView },
+        { path: '/', component: { template: '<div>player home</div>' } },
+      ],
+    })
+    await router.push('/share-login')
+    await router.isReady()
+    const wrapper = mount(ShareLoginView, { global: { plugins: [createPinia(), router] } })
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/auth/share-login', { token })
+    expect(router.currentRoute.value.path).toBe('/')
+    wrapper.unmount()
+    window.history.replaceState({}, '', previousUrl || '/')
   })
 })
 

@@ -1,13 +1,14 @@
 import { Router } from 'express'
 import { hashPassword, verifyPassword } from '../lib/password'
 import prisma from '../lib/prisma'
-import { authenticateToken, clearSession, COOKIE_NAME, issueSession, revokeSession } from '../lib/session'
+import { authenticateToken, clearSession, COOKIE_NAME, hashShareLoginToken, issueSession, redeemShareLoginToken, revokeSession } from '../lib/session'
 import { requireAuth, AuthRequest } from '../middleware/auth'
 import { FailureLimiter } from '../lib/failureLimiter'
 import { AUTH } from '../config/limits'
 import { badRequest, HttpError, unauthorized } from '../lib/errors'
 import { body } from '../lib/validate'
 import { disconnectSession, emitToAll } from '../lib/socket'
+import { rateLimit } from 'express-rate-limit'
 
 // A real bcrypt hash of a random value, compared against when the account does not exist, so an unknown
 // username costs the same time as a wrong password.
@@ -38,6 +39,13 @@ const sessionView = (user: {
 
 export function authRouter(): Router {
   const router = Router()
+  const shareLoginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many share-link attempts. Try again later.' },
+  })
   // Failed attempts only, per address and per account name: a correct password is never slowed down.
   const byIp = new FailureLimiter(AUTH.loginWindowMs, AUTH.loginMaxFailuresPerIp)
   const byName = new FailureLimiter(AUTH.loginWindowMs, AUTH.loginMaxFailuresPerUser)
@@ -65,15 +73,24 @@ export function authRouter(): Router {
 
     // Exact username first, then phone, then username ignoring case (phone keyboards capitalise).
     const user =
-      (await prisma.user.findUnique({ where: { username: login } })) ??
+      (await prisma.user.findFirst({ where: { username: login, permanentlyPurgedAt: null } })) ??
       (await prisma.user.findUnique({ where: { phone: login } })) ??
-      (await prisma.user.findFirst({ where: { username: { equals: login, mode: 'insensitive' } } }))
+      (await prisma.user.findFirst({ where: { username: { equals: login, mode: 'insensitive' }, permanentlyPurgedAt: null } }))
 
     const valid = await verifyPassword(password, user?.passwordHash ?? (await getDummyHash()))
     if (!user || !valid) reject()
     byName.clear(nameKey)
 
     await issueSession(res, user, input.remember === true)
+    res.json({ data: sessionView(user) })
+  })
+
+  router.post('/share-login', shareLoginLimiter, async (req, res) => {
+    const token = body(req).token
+    if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
+      throw unauthorized('Invalid or expired share link')
+    }
+    const user = await redeemShareLoginToken(res, hashShareLoginToken(token))
     res.json({ data: sessionView(user) })
   })
 
